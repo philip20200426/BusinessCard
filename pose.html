@@ -131,6 +131,12 @@
   .loadbar {
     position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
     width: min(420px, 82%); z-index: 4;
+    background: rgba(4, 6, 13, 0.82);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   }
   .loadbar .t { font-family: var(--mono); font-size: 11px; color: var(--cyan); margin-bottom: 8px; letter-spacing: 0.08em; }
   .loadbar .track { height: 4px; background: rgba(0,240,255,0.12); border-radius: 999px; overflow: hidden; }

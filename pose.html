@@ -1,0 +1,1537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>POSTURE.GUARD // 实时坐姿监测</title>
+<meta name="description" content="浏览器端实时坐姿监测 — MediaPipe Pose + WASM，全部推理在本地完成，不上传任何画面。" />
+<style>
+  :root {
+    --bg-0: #04060d;
+    --bg-1: #070b1a;
+    --bg-2: #0b1226;
+    --fg-0: #e7f3ff;
+    --fg-1: #9bb0c9;
+    --fg-2: #5d6e87;
+    --cyan: #00f0ff;
+    --magenta: #ff2bd1;
+    --green: #00ff9d;
+    --purple: #b026ff;
+    --amber: #ffb800;
+    --red: #ff4d6d;
+    --line: rgba(0, 240, 255, 0.18);
+    --line-soft: rgba(0, 240, 255, 0.08);
+    --mono: "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    --sans: "Inter", "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: var(--sans);
+    color: var(--fg-0);
+    background: var(--bg-0);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 60px;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background-image:
+      linear-gradient(var(--line-soft) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+    background-size: 60px 60px;
+    mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at 50% 0%, #000 0%, transparent 75%);
+  }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-shadow: 0 0 8px var(--cyan); }
+  code, .mono { font-family: var(--mono); }
+
+  /* ---------- top bar ---------- */
+  header.topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(4, 6, 13, 0.82);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .wrap { max-width: 1680px; margin: 0 auto; padding: 0 20px; }
+  .topbar .wrap {
+    height: 56px; display: flex; align-items: center; gap: 18px;
+  }
+  .brand { font-family: var(--mono); font-size: 13px; letter-spacing: 0.08em; color: var(--fg-1); }
+  .brand b { color: var(--cyan); font-weight: 600; }
+  .brand .blink { animation: blink 1.2s steps(2, start) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .topbar .spacer { flex: 1; }
+  .topbar .meta { font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+
+  /* ---------- layout ---------- */
+  main { max-width: 1680px; margin: 0 auto; padding: 22px 20px 0; }
+  /* 预览更宽，右栏（指标）收缩到原宽度的 2/3 左右 */
+  .grid { display: grid; grid-template-columns: minmax(0, 2.7fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: linear-gradient(160deg, rgba(11, 18, 38, 0.9), rgba(7, 11, 26, 0.9));
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .card > .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-2);
+  }
+  .card > .head .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .card > .body { padding: 14px; }
+  .col { display: flex; flex-direction: column; gap: 18px; }
+
+  /* ---------- stage ---------- */
+  .stage { position: relative; background: #000; aspect-ratio: 16 / 9; }
+  .stage video, .stage canvas {
+    display: block; width: 100%; height: auto;
+  }
+  .stage video { transform: scaleX(-1); }
+  .stage canvas { position: absolute; inset: 0; }
+  .stage .placeholder {
+    position: absolute; inset: 0;
+    background: #05070f;
+  }
+  .stage .placeholder .ph-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .overlay-tl {
+    position: absolute; left: 12px; top: 12px; z-index: 3;
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
+  }
+  .lamp {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 999px;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
+    background: rgba(4, 6, 13, 0.78); border: 1px solid var(--line);
+    backdrop-filter: blur(6px);
+  }
+  .lamp i { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-2); box-shadow: 0 0 10px currentColor; }
+  .lamp.ok    { color: var(--green);  border-color: rgba(0,255,157,0.35); }
+  .lamp.ok i  { background: var(--green); }
+  .lamp.bad   { color: var(--red);    border-color: rgba(255,77,109,0.45); }
+  .lamp.bad i { background: var(--red); animation: pulse 1.1s ease-in-out infinite; }
+  .lamp.warn  { color: var(--amber);  border-color: rgba(255,184,0,0.35); }
+  .lamp.warn i{ background: var(--amber); }
+  .lamp.idle  { color: var(--fg-2); }
+  @keyframes pulse { 50% { opacity: 0.28; } }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-family: var(--mono); font-size: 11px; padding: 4px 9px; border-radius: 4px;
+    background: rgba(255,77,109,0.14); color: var(--red); border: 1px solid rgba(255,77,109,0.3);
+  }
+  .chip.green { background: rgba(0,255,157,0.12); color: var(--green); border-color: rgba(0,255,157,0.28); }
+
+  .loadbar {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(420px, 82%); z-index: 4;
+  }
+  .loadbar .t { font-family: var(--mono); font-size: 11px; color: var(--cyan); margin-bottom: 8px; letter-spacing: 0.08em; }
+  .loadbar .track { height: 4px; background: rgba(0,240,255,0.12); border-radius: 999px; overflow: hidden; }
+  .loadbar .fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--cyan), var(--magenta)); transition: width 0.25s; }
+  .loadbar .s { font-family: var(--mono); font-size: 10px; color: var(--fg-2); margin-top: 8px; }
+  .hidden { display: none !important; }
+
+  /* ---------- controls ---------- */
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
+
+  /* 参数设置面板：折叠在控制条下方，2 列以利用加宽后的预览区 */
+  .settings-panel { padding: 14px; border-bottom: 1px solid var(--line-soft); background: rgba(7, 11, 26, 0.45); }
+  .settings-panel .setgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; }
+  .settings-panel .setgrid .sub { grid-column: 1 / -1; }
+  .settings-panel .setgrid .controls { grid-column: 1 / -1; }
+  button, .btnlike {
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.04em;
+    padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    background: rgba(0,240,255,0.07); color: var(--fg-0);
+    border: 1px solid var(--line);
+    transition: background 0.15s, box-shadow 0.15s, transform 0.1s;
+  }
+  button:hover:not(:disabled), .btnlike:hover { background: rgba(0,240,255,0.16); box-shadow: 0 0 12px rgba(0,240,255,0.25); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.primary { background: rgba(0,255,157,0.14); border-color: rgba(0,255,157,0.4); color: var(--green); }
+  button.primary:hover:not(:disabled) { background: rgba(0,255,157,0.22); box-shadow: 0 0 12px rgba(0,255,157,0.3); }
+  button.danger { background: rgba(255,77,109,0.14); border-color: rgba(255,77,109,0.4); color: var(--red); }
+  select, input[type="number"] {
+    font-family: var(--mono); font-size: 12px;
+    background: rgba(4,6,13,0.9); color: var(--fg-0);
+    border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px;
+  }
+  input[type="number"] { width: 92px; }
+  label.field { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--fg-1); padding: 5px 0; }
+  label.field .k { font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+
+  /* ---------- metrics ---------- */
+  .metric { padding: 9px 0; border-bottom: 1px dashed var(--line-soft); }
+  .metric:last-child { border-bottom: none; }
+  .metric .row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+  .metric .name { font-size: 12.5px; color: var(--fg-0); }
+  .metric .name small { font-family: var(--mono); font-size: 10px; color: var(--fg-2); margin-left: 6px; }
+  .metric .val { font-family: var(--mono); font-size: 12px; color: var(--green); }
+  .metric .val.over { color: var(--red); }
+  .metric .val.na { color: var(--fg-2); }
+  .metric .thr { font-family: var(--mono); font-size: 10px; color: var(--fg-2); }
+  .bar { position: relative; height: 6px; border-radius: 999px; background: rgba(93,110,135,0.18); overflow: hidden; }
+  .bar .fill { position: absolute; top: 0; bottom: 0; background: var(--green); border-radius: 999px; }
+  .bar .fill.over { background: var(--red); }
+  .bar .zero { position: absolute; top: -1px; bottom: -1px; width: 1px; background: rgba(155,176,201,0.5); }
+  .bar .mark { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--amber); opacity: 0.85; }
+  .bars-legend { font-family: var(--mono); font-size: 10px; color: var(--fg-2); padding-top: 8px; }
+
+  /* ---------- status card ---------- */
+  .status-big { display: flex; align-items: center; gap: 14px; }
+  .status-big .ring {
+    width: 54px; height: 54px; border-radius: 50%; flex: none;
+    border: 2px solid var(--green); background: radial-gradient(circle, rgba(0,255,157,0.18), transparent 70%);
+    display: grid; place-items: center; font-family: var(--mono); font-size: 10px; color: var(--green);
+  }
+  .status-big.bad .ring { border-color: var(--red); background: radial-gradient(circle, rgba(255,77,109,0.2), transparent 70%); color: var(--red); }
+  .status-big.warn .ring { border-color: var(--amber); background: radial-gradient(circle, rgba(255,184,0,0.18), transparent 70%); color: var(--amber); }
+  .status-big .txt .t { font-size: 15px; font-weight: 600; }
+  .status-big .txt .s { font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+
+  .kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+  .kv .item { background: rgba(0,240,255,0.04); border: 1px solid var(--line-soft); border-radius: 8px; padding: 9px 11px; }
+  .kv .item .k { font-family: var(--mono); font-size: 10px; color: var(--fg-2); letter-spacing: 0.06em; }
+  .kv .item .v { font-family: var(--mono); font-size: 16px; color: var(--cyan); }
+
+  /* ---------- log ---------- */
+  .log {
+    font-family: var(--mono); font-size: 11px; line-height: 1.75;
+    height: 160px; overflow-y: auto; padding: 10px 12px;
+    background: rgba(2,4,10,0.85); border-top: 1px solid var(--line-soft);
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log .l { color: var(--fg-1); }
+  .log .l .ts { color: var(--fg-2); }
+  .log .l.diag { color: #6f86a3; }
+  .log .l.warn { color: var(--amber); }
+  .log .l.err  { color: var(--red); }
+  .log .l.ok   { color: var(--green); }
+  .log::-webkit-scrollbar { width: 8px; }
+  .log::-webkit-scrollbar-thumb { background: rgba(0,240,255,0.18); border-radius: 999px; }
+
+  /* ---------- settings ---------- */
+  details.sect > summary {
+    cursor: pointer; list-style: none; padding: 10px 14px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--fg-2);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  details.sect > summary::-webkit-details-marker { display: none; }
+  details.sect > summary::before { content: "▸ "; color: var(--cyan); }
+  details.sect[open] > summary::before { content: "▾ "; }
+  details.sect > summary:hover { color: var(--fg-0); }
+  .setgrid { display: flex; flex-direction: column; gap: 2px; }
+  .setgrid .sub { font-family: var(--mono); font-size: 10px; color: var(--fg-2); letter-spacing: 0.1em; margin: 10px 0 2px; }
+
+  /* ---------- shots ---------- */
+  .shots { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+  .shot { border: 1px solid var(--line-soft); border-radius: 6px; overflow: hidden; background: #000; transition: border-color .15s; }
+  .shot:hover { border-color: var(--cyan); }
+  .shot img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+  .shot .m { display: flex; justify-content: space-between; align-items: center; padding: 5px 7px; font-family: var(--mono); font-size: 10px; color: var(--fg-2); }
+  .empty { font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+
+  /* ---------- lightbox（截图原比例查看） ---------- */
+  .lightbox {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(3, 5, 12, 0.92);
+    display: flex; flex-direction: column; padding: 14px 18px;
+  }
+  .lb-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 10px; font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+  .lb-btns { display: flex; gap: 8px; }
+  .lb-btn {
+    font-family: var(--mono); font-size: 11px; color: var(--fg-1);
+    background: var(--bg-2); border: 1px solid var(--line); border-radius: 5px;
+    padding: 5px 12px; cursor: pointer; text-decoration: none;
+  }
+  .lb-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+  .lb-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; overflow: auto; }
+  .lb-stage img { max-width: 100%; max-height: 100%; width: auto; height: auto; border: 1px solid var(--line); border-radius: 6px; }
+
+  /* ---------- footer ---------- */
+  footer { max-width: 1360px; margin: 26px auto 0; padding: 0 20px; font-family: var(--mono); font-size: 11px; color: var(--fg-2); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="./index.html" style="text-decoration:none">◂ <b>buffer</b> // posture.guard<span class="blink">_</span></a>
+    <span class="spacer"></span>
+    <span class="meta" id="topmeta">model: pose_landmarker.task · runtime: tasks-vision 0.10.35 · local inference</span>
+  </div>
+</header>
+
+<main>
+  <div class="grid">
+
+    <!-- ================= 左栏：画面 + 控制台 ================= -->
+    <div class="col">
+      <section class="card">
+        <div class="head"><span class="dot"></span>live preview · 33 keypoints</div>
+
+        <div class="controls">
+          <button id="btn-start" disabled>▶ 启动检测</button>
+          <button id="btn-stop" disabled>■ 停止</button>
+          <button id="btn-cal">◎ 标定基准</button>
+          <button id="btn-shot">▣ 截图</button>
+          <select id="sel-cam" title="摄像头"></select>
+          <button id="btn-refresh">↻ 刷新</button>
+          <button id="btn-settings">⚙ 参数设置</button>
+        </div>
+
+        <div id="settings-panel" class="settings-panel hidden">
+          <div class="setgrid">
+            <label class="field"><span>灵敏度档位 <span class="k">sensitivity</span></span>
+              <select id="set-sens">
+                <option value="low">低（日常，默认）</option>
+                <option value="medium">中</option>
+                <option value="high">高（演示）</option>
+              </select>
+            </label>
+            <label class="field"><span>久坐提醒间隔 <span class="k">sit_remind_minutes</span></span>
+              <input type="number" id="set-remind" min="0" max="180" step="5" />
+            </label>
+            <label class="field"><span>站立判定：上移超过 <span class="k">stand_shoulder_rise</span></span>
+              <input type="number" id="set-rise" min="0.02" max="0.6" step="0.01" />
+            </label>
+            <label class="field"><span>镜像预览 <span class="k">selfie mirror</span></span>
+              <select id="set-mirror"><option value="1">开（推荐）</option><option value="0">关</option></select>
+            </label>
+            <label class="field"><span>异常时自动留档 <span class="k">auto_capture_on_bad</span></span>
+              <select id="set-autocap"><option value="1">开（异常瞬间自动截图）</option><option value="0">关</option></select>
+            </label>
+
+            <div class="sub">灵敏度参数 (高 / 中 / 低)</div>
+            <label class="field"><span>高 · 滤波窗口 <span class="k">filter_window</span></span><input type="number" id="p-high-filter" step="1" min="1" max="30" /></label>
+            <label class="field"><span>高 · 异常确认(秒) <span class="k">confirm_bad</span></span><input type="number" id="p-high-bad" step="0.5" min="0.1" max="60" /></label>
+            <label class="field"><span>高 · 恢复确认(秒) <span class="k">confirm_good</span></span><input type="number" id="p-high-good" step="0.5" min="0.1" max="120" /></label>
+            <label class="field"><span>高 · 提醒冷却(秒) <span class="k">cooldown</span></span><input type="number" id="p-high-cool" step="1" min="0" max="600" /></label>
+            <label class="field"><span>中 · 滤波窗口 <span class="k">filter_window</span></span><input type="number" id="p-med-filter" step="1" min="1" max="30" /></label>
+            <label class="field"><span>中 · 异常确认(秒) <span class="k">confirm_bad</span></span><input type="number" id="p-med-bad" step="0.5" min="0.1" max="60" /></label>
+            <label class="field"><span>中 · 恢复确认(秒) <span class="k">confirm_good</span></span><input type="number" id="p-med-good" step="0.5" min="0.1" max="120" /></label>
+            <label class="field"><span>中 · 提醒冷却(秒) <span class="k">cooldown</span></span><input type="number" id="p-med-cool" step="1" min="0" max="600" /></label>
+            <label class="field"><span>低 · 滤波窗口 <span class="k">filter_window</span></span><input type="number" id="p-low-filter" step="1" min="1" max="30" /></label>
+            <label class="field"><span>低 · 异常确认(秒) <span class="k">confirm_bad</span></span><input type="number" id="p-low-bad" step="0.5" min="0.1" max="60" /></label>
+            <label class="field"><span>低 · 恢复确认(秒) <span class="k">confirm_good</span></span><input type="number" id="p-low-good" step="0.5" min="0.1" max="120" /></label>
+            <label class="field"><span>低 · 提醒冷却(秒) <span class="k">cooldown</span></span><input type="number" id="p-low-cool" step="1" min="0" max="600" /></label>
+
+            <div class="sub">相对偏差阈值 (标定后生效 · delta)</div>
+            <label class="field"><span>头部前倾 <span class="k">head_drop_delta</span></span><input type="number" id="d-head_drop" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>头部侧偏 <span class="k">head_lateral_delta</span></span><input type="number" id="d-head_lateral" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>躯干侧倾 <span class="k">torso_lateral_delta</span></span><input type="number" id="d-torso_lateral" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>肩部歪斜 <span class="k">shoulder_tilt_delta</span></span><input type="number" id="d-shoulder_tilt" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>距离过近 <span class="k">face_too_close_delta</span></span><input type="number" id="d-face_to_close" step="0.01" min="0" max="1" /></label>
+
+            <div class="sub">未标定绝对阈值 (absolute)</div>
+            <label class="field"><span>头部前倾 <span class="k">abs_head_drop</span></span><input type="number" id="a-head_drop" step="0.01" min="-1" max="1" /></label>
+            <label class="field"><span>头部侧偏 <span class="k">abs_head_lateral</span></span><input type="number" id="a-head_lateral" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>躯干侧倾 <span class="k">abs_torso_lateral</span></span><input type="number" id="a-torso_lateral" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>肩部歪斜 <span class="k">abs_shoulder_tilt</span></span><input type="number" id="a-shoulder_tilt" step="0.01" min="0" max="1" /></label>
+            <label class="field"><span>距离过近 <span class="k">abs_face_too_close</span></span><input type="number" id="a-face_to_shoulder" step="0.01" min="0" max="2" /></label>
+            <label class="field"><span>站立兜底判定 <span class="k">abs_stand_shoulder_y</span></span><input type="number" id="a-stand_y" step="0.01" min="0.05" max="0.9" /></label>
+
+            <div class="controls" style="border-top:none;padding:10px 0 0;grid-column:1/-1">
+              <button id="btn-reset-cal">重置标定</button>
+              <button id="btn-reset-cfg">恢复默认参数</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stage" id="stage">
+          <video id="video" playsinline muted autoplay></video>
+          <canvas id="stage-canvas"></canvas>
+
+          <div class="placeholder" id="ph">
+            <img class="ph-img" src="./placeholder_1280_720.png" alt="camera offline" />
+          </div>
+
+          <div class="overlay-tl">
+            <div class="lamp idle" id="lamp"><i></i><span id="lamp-text">IDLE</span></div>
+            <div class="chips" id="chips"></div>
+          </div>
+
+          <div class="loadbar hidden" id="loadbar">
+            <div class="t" id="load-t">初始化…</div>
+            <div class="track"><div class="fill" id="load-fill"></div></div>
+            <div class="s" id="load-s"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="head"><span class="dot"></span>console</div>
+        <div class="log" id="log"></div>
+      </section>
+
+      <section class="card">
+        <div class="head"><span class="dot"></span>captures <span style="margin-left:auto;color:var(--fg-2);text-transform:none;letter-spacing:0">异常 / 久坐提醒时自动留档</span></div>
+        <div class="body">
+          <div class="shots" id="shots"></div>
+          <div class="empty" id="shots-empty">暂无截图</div>
+        </div>
+      </section>
+    </div>
+
+    <!-- ================= 右栏：状态 + 指标 ================= -->
+    <div class="col">
+      <section class="card">
+        <div class="head"><span class="dot"></span>status</div>
+        <div class="body">
+          <div class="status-big" id="status-big">
+            <div class="ring" id="ring">--</div>
+            <div class="txt">
+              <div class="t" id="status-t">等待启动</div>
+              <div class="s" id="status-s">camera idle</div>
+            </div>
+          </div>
+          <div class="kv">
+            <div class="item"><div class="k">久坐时长</div><div class="v" id="kv-sit">00:00</div></div>
+            <div class="item"><div class="k">异常项</div><div class="v" id="kv-issues">0</div></div>
+            <div class="item"><div class="k">采集 / 推理</div><div class="v" id="kv-fps">-- / --</div></div>
+            <div class="item"><div class="k">标定状态</div><div class="v" id="kv-cal" style="font-size:13px">未标定</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="head"><span class="dot"></span>metrics</div>
+        <div class="body" id="metrics"></div>
+        <div class="bars-legend" style="padding:0 14px 12px">绿条=正常 · 红条=即时超阈 · <span style="color:var(--amber)">黄标</span>=报警阈值（标定基线 + delta）</div>
+      </section>
+    </div>
+
+  </div>
+
+  <!-- 算法说明：最底部，全宽 -->
+  <details class="sect card">
+    <summary>算法说明 (how it works)</summary>
+    <div class="body" style="font-size:13px;color:var(--fg-1)">
+      <p><b>流水线</b>：<span class="mono" style="font-size:11.5px">33 关键点 → 可见性过滤 → 原始几何指标 → 滑动平均滤波 → 滞回阈值 + 时间累积确认 → 状态机聚合</span></p>
+      <p style="margin-top:8px">所有几何量都除以<b>肩宽</b>做归一化，因此结果与相机距离、分辨率无关；坐标来自 MediaPipe Pose，检测在本机 WASM/GPU 完成，画面不会离开浏览器。</p>
+      <ul style="margin:8px 0 0 18px">
+        <li><b>head_drop 头部前倾</b>：<span class="mono" style="font-size:11.5px">(ny − 肩中点y) / 肩宽</span>，带符号，正值=低头；单向判定（坐更直不报）</li>
+        <li><b>head_lateral 头部侧偏</b>：<span class="mono" style="font-size:11.5px">(nx − 肩中点x) / 肩宽</span>，比较时取绝对值，左右同等对待</li>
+        <li><b>torso_lateral 躯干侧倾</b>：<span class="mono" style="font-size:11.5px">(肩中点x − 髋中点x) / 肩宽</span>，双向判定</li>
+        <li><b>shoulder_tilt 肩部歪斜</b>：<span class="mono" style="font-size:11.5px">|l肩y − r肩y| / 肩宽</span>，双向判定</li>
+        <li><b>face_to_shoulder 距离过近</b>：<span class="mono" style="font-size:11.5px">耳距 / 肩宽</span>，距离代理指标，越近比值越大，单向判定</li>
+      </ul>
+      <p style="margin-top:8px"><b>为什么不会抖</b>：滤波管数据层（3/6/9 帧滑动平均），滞回管边界（15% 回差），时间累积管决策（异常需持续 2/5/8 秒，恢复需 4/10/16 秒）——三者与帧率解耦。</p>
+      <p style="margin-top:8px"><b>判定优先级</b>：<span class="mono" style="font-size:11.5px">肩歪 &gt; 前倾 &gt; 头偏 &gt; 躯干倾 &gt; 过近</span>，状态灯同时汇总全部超阈项。</p>
+      <p style="margin-top:8px"><b>站立短路</b>：双肩中点纵坐标上移超过阈值即判站立，清空确认状态并清零久坐计时（站姿下其余指标无意义）；人体短暂丢失 5 秒内不清零。</p>
+    </div>
+  </details>
+
+  <footer>
+    <p>// POSTURE.GUARD · MediaPipe PoseLandmarker (WASM/GPU) · 全程本地推理，无网络上传</p>
+  </footer>
+</main>
+
+<!-- 截图原比例查看层 -->
+<div class="lightbox hidden" id="lightbox">
+  <div class="lb-bar">
+    <span id="lb-info"></span>
+    <span class="lb-btns">
+      <a class="lb-btn" id="lb-save">⤓ 保存</a>
+      <button class="lb-btn" id="lb-close">✕ 关闭</button>
+    </span>
+  </div>
+  <div class="lb-stage"><img id="lb-img" alt="capture" /></div>
+</div>
+
+<script type="module">
+import { FilesetResolver, PoseLandmarker } from './vendor/mediapipe/vision_bundle.js';
+
+/* ============================================================
+ *  0. 常量与默认配置（对应桌面版 ref/pose_config.json）
+ * ============================================================ */
+const PRESETS = {
+  high:   { filter_window: 3, confirm_bad: 2.0,  confirm_good: 4.0,  cooldown: 20.0 },
+  medium: { filter_window: 6, confirm_bad: 5.0,  confirm_good: 10.0, cooldown: 45.0 },
+  low:    { filter_window: 9, confirm_bad: 8.0,  confirm_good: 16.0, cooldown: 90.0 },
+};
+/* 灵敏度参数字段：UI id → (档位, PRESETS 键) */
+const PRESET_FIELDS = [
+  ['p-high-filter','high','filter_window'], ['p-high-bad','high','confirm_bad'],
+  ['p-high-good','high','confirm_good'],    ['p-high-cool','high','cooldown'],
+  ['p-med-filter','medium','filter_window'],['p-med-bad','medium','confirm_bad'],
+  ['p-med-good','medium','confirm_good'],   ['p-med-cool','medium','cooldown'],
+  ['p-low-filter','low','filter_window'],   ['p-low-bad','low','confirm_bad'],
+  ['p-low-good','low','confirm_good'],      ['p-low-cool','low','cooldown'],
+];
+
+const DEFAULT_CFG = {
+  sensitivity: 'low',
+  sit_remind_minutes: 30,
+  mirror: true,
+  auto_capture_on_bad: true,
+  camera_index: 0,
+  thresholds: {
+    abs_head_drop: -0.2,
+    abs_head_lateral: 0.15,
+    abs_torso_lateral: 0.12,
+    abs_shoulder_tilt: 0.06,
+    abs_face_too_close: 0.55,
+    head_drop_delta: 0.1,
+    head_lateral_delta: 0.23,
+    torso_lateral_delta: 0.16,
+    shoulder_tilt_delta: 0.2,
+    face_too_close_delta: 0.08,
+    abs_stand_shoulder_y: 0.3,
+    stand_shoulder_rise: 0.08,   // 文档默认 0.08；旧 ref 配置里的 0.29 过大，站立几乎不可能触发
+  },
+};
+
+const STORE_KEY = 'pose_guard_cfg_v2';
+const PRESETS_STORE_KEY = 'pose_guard_presets_v1';
+
+/* 关键点索引（与 MediaPipe 33 点一致） */
+const NOSE = 0, L_EAR = 7, R_EAR = 8, L_SH = 11, R_SH = 12, L_HIP = 23, R_HIP = 24;
+const CORE_POINTS = [NOSE, L_SH, R_SH, L_HIP, R_HIP];
+/* 判定所需的最小可见点集：坐姿时髋部常被桌子挡住或落在画面外，
+   不能因为髋部不可见就把整帧判成「无人」 */
+const REQUIRED_POINTS = [NOSE, L_SH, R_SH];
+const AUX_POINTS = [L_EAR, R_EAR];
+const KEY_LANDMARKS = [
+  [NOSE, 'Nose'], [L_EAR, 'L-Ear'], [R_EAR, 'R-Ear'],
+  [L_SH, 'L-Sh'], [R_SH, 'R-Sh'], [L_HIP, 'L-Hip'], [R_HIP, 'R-Hip'],
+];
+
+/* 骨架连线（BlazePose 33 点标准连接） */
+const CONNECTIONS = [
+  [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10],
+  [11,12],[11,13],[13,15],[15,17],[15,19],[15,21],[17,19],
+  [12,14],[14,16],[16,18],[16,20],[16,22],[18,20],
+  [11,23],[12,24],[23,24],
+  [23,25],[25,27],[27,29],[27,31],[29,31],
+  [24,26],[26,28],[28,30],[28,32],[30,32],
+];
+
+/* 指标定义：signed=带方向；useAbs=比较时取绝对值；range=UI 显示量程 */
+const METRIC_DEFS = [
+  { key: 'head_drop',       issue: 'HEAD_FORWARD', label: '头部前倾', sub: 'head_drop',       range: [-0.6, 0.6], signed: true,  useAbs: false, notes: '正值=低头/前倾' },
+  { key: 'head_lateral',    issue: 'HEAD_LATERAL', label: '头部侧偏', sub: 'head_lateral',    range: [-0.6, 0.6], signed: true,  useAbs: true,  notes: '±双向' },
+  { key: 'torso_lateral',   issue: 'TORSO_TILT',   label: '躯干侧倾', sub: 'torso_lateral',   range: [-0.6, 0.6], signed: true,  useAbs: true,  notes: '±双向' },
+  { key: 'shoulder_tilt',   issue: 'SHOULDER_TILT',label: '肩部歪斜', sub: 'shoulder_tilt',   range: [0, 0.4],    signed: false, useAbs: false, notes: '原始值已取绝对值' },
+  { key: 'face_to_shoulder',issue: 'TOO_CLOSE',    label: '距离过近', sub: 'face_to_shoulder',range: [0, 1.2],    signed: false, useAbs: false, notes: '耳距/肩宽' },
+];
+/* 聚合优先级（索引越小越优先） */
+const PRIORITY = ['SHOULDER_TILT', 'HEAD_FORWARD', 'HEAD_LATERAL', 'TORSO_TILT', 'TOO_CLOSE'];
+
+const FILTER_KEYS = ['head_drop', 'head_lateral', 'torso_lateral', 'shoulder_tilt', 'face_to_shoulder', 'shoulder_mid_y'];
+const HYST_KEYS = ['head_drop', 'head_lateral', 'torso_lateral', 'shoulder_tilt', 'face_to_shoulder', 'STANDING'];
+
+const PERSON_LOSS_GRACE_MS = 5000;
+const STAND_CONFIRM_MS = 800;     // 站立判定去抖：需持续 0.8s，避免误清零久坐计时
+const CALIB_MS = 2500;            // 标定采样时长
+const MODEL_URL = './models/pose_landmarker.task';
+const WASM_BASE = './vendor/mediapipe/wasm';
+
+/* ============================================================
+ *  1. 工具函数
+ * ============================================================ */
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const fmtTs = () => {
+  const d = new Date();
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+};
+const fmtDur = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(Math.floor(s / 3600))}:${p(Math.floor((s % 3600) / 60))}:${p(s % 60)}`;
+};
+const vis = (lm) => (lm && typeof lm.visibility === 'number' ? lm.visibility : 1);
+
+function loadCfg() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return structuredClone(DEFAULT_CFG);
+    const saved = JSON.parse(raw);
+    const cfg = structuredClone(DEFAULT_CFG);
+    Object.assign(cfg, { sensitivity: saved.sensitivity ?? cfg.sensitivity, sit_remind_minutes: saved.sit_remind_minutes ?? cfg.sit_remind_minutes, mirror: saved.mirror ?? cfg.mirror, auto_capture_on_bad: saved.auto_capture_on_bad ?? cfg.auto_capture_on_bad, camera_index: saved.camera_index ?? cfg.camera_index });
+    Object.assign(cfg.thresholds, saved.thresholds || {});
+    return cfg;
+  } catch { return structuredClone(DEFAULT_CFG); }
+}
+function saveCfg() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(cfg)); } catch {}
+}
+
+/* 灵敏度档位参数的存取（独立于 cfg，避免每次改阈值都覆盖） */
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(PRESETS_STORE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    for (const lvl of ['high', 'medium', 'low']) Object.assign(PRESETS[lvl], saved[lvl] || {});
+  } catch {}
+}
+function savePresets() {
+  try { localStorage.setItem(PRESETS_STORE_KEY, JSON.stringify(PRESETS)); } catch {}
+}
+
+/* ============================================================
+ *  2. 日志
+ * ============================================================ */
+const logEl = $('log');
+let logLines = 0;
+function log(msg, level = 'l') {
+  const line = document.createElement('div');
+  line.className = 'l ' + level;
+  line.innerHTML = `<span class="ts">${fmtTs()}</span> ${msg}`;
+  logEl.appendChild(line);
+  if (++logLines > 300) { logEl.removeChild(logEl.firstChild); logLines--; }
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+/* ============================================================
+ *  3. 语音播报（可丢弃，避免堆积）
+ * ============================================================ */
+let ttsReady = false;
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  try {
+    speechSynthesis.cancel();               // 丢弃旧队列，只播最新（与桌面版 TTL+可丢弃策略一致）
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'zh-CN';
+    u.rate = 1.05;
+    u.pitch = 1.0;
+    u.volume = 1.0;
+    speechSynthesis.speak(u);
+    ttsReady = true;
+  } catch (e) { log('语音播报不可用：' + e.message, 'warn'); }
+}
+
+/* ============================================================
+ *  4. 分析器：指标计算 / 滤波 / 滞回 / 时间确认 / 状态机
+ * ============================================================ */
+class Analyzer {
+  constructor() { this.reset(); }
+
+  reset() {
+    this.filters = {}; this.hyst = {};
+    for (const k of FILTER_KEYS) this.filters[k] = [];
+    for (const k of HYST_KEYS) this.hyst[k] = { bad: false, firstBad: null, firstGood: null };
+    this.baseline = null;
+    this.standing = false;
+    this.sitStart = null;
+    this.sitFrozenMs = 0;
+    this.lastSeen = 0;
+    this.sitRemindCount = 0;
+    this.lastAlertAt = 0;
+    this.lastStateWasBad = false;
+    this.lastCapIssues = null;  // 自动留档：当前坏状态中已截过图的异常项集合
+    this.lastCapAt = 0;         // 自动留档：上次截图时间（防连拍）
+    this.lastValues = {};       // 辅助点不可见时沿用上一帧值
+    this.standEnterAt = null;
+    this.standExitAt = null;
+  }
+
+  clearHyst() { for (const k of HYST_KEYS) this.hyst[k] = { bad: false, firstBad: null, firstGood: null }; }
+
+  /* 4.1 原始几何指标（对应 _compute_raw） */
+  computeRaw(lm) {
+    /* 门槛与 drawStage 的连线阈值保持一致（0.3）：
+       骨架既然画得出来（连线端点 vis ≥ 0.3），就不能把这一帧判成「无人」 */
+    for (const i of REQUIRED_POINTS) if (vis(lm[i]) < 0.3) return null;
+    const hipsVisible = vis(lm[L_HIP]) >= 0.5 && vis(lm[R_HIP]) >= 0.5;
+    const auxVisible = AUX_POINTS.filter((i) => vis(lm[i]) >= 0.5).length;
+
+    const nx = lm[NOSE].x, ny = lm[NOSE].y;
+    const lsx = lm[L_SH].x, lsy = lm[L_SH].y;
+    const rsx = lm[R_SH].x, rsy = lm[R_SH].y;
+    const lhx = lm[L_HIP].x, rhx = lm[R_HIP].x;
+
+    const shoulderWidth = Math.abs(lsx - rsx);
+    if (shoulderWidth < 0.02) return null;      // 肩膀过窄视为无效帧（距离过远/侧身）
+
+    const shMidX = (lsx + rsx) / 2;
+    const shMidY = (lsy + rsy) / 2;
+    const hipMidX = (lhx + rhx) / 2;
+
+    let faceToShoulder = null;
+    if (auxVisible >= 2) faceToShoulder = Math.abs(lm[L_EAR].x - lm[R_EAR].x) / shoulderWidth;
+
+    return {
+      head_drop: (ny - shMidY) / shoulderWidth,
+      head_lateral: (nx - shMidX) / shoulderWidth,
+      torso_lateral: hipsVisible ? (shMidX - hipMidX) / shoulderWidth : null,
+      shoulder_tilt: Math.abs(lsy - rsy) / shoulderWidth,
+      face_to_shoulder: faceToShoulder,
+      shoulder_mid_y: shMidY,
+    };
+  }
+
+  /* 4.2 滑动平均滤波（对应 _apply_filter） */
+  applyFilter(rawValues) {
+    const win = PRESETS[cfg.sensitivity].filter_window;
+    const out = {};
+    for (const k of FILTER_KEYS) {
+      const v = rawValues[k];
+      if (v === null || v === undefined) { out[k] = this.lastValues[k] ?? null; continue; }
+      const buf = this.filters[k];
+      buf.push(v);
+      while (buf.length > win) buf.shift();
+      out[k] = buf.reduce((a, b) => a + b, 0) / buf.length;
+      this.lastValues[k] = v;
+    }
+    return out;
+  }
+
+  /* 4.3 判定方向：head_drop / face_to_shoulder 单向直比，其余取绝对值 */
+  static isOver(key, value, thr) {
+    const def = METRIC_DEFS.find((d) => d.key === key);
+    if (!def) return value > thr;
+    return def.useAbs ? Math.abs(value) > Math.abs(thr) : value > thr;
+  }
+
+  /* 4.4 滞回 + 时间累积确认（对应 _hysteresis_update）
+     进入：value > thr 持续 confirm_bad 秒
+     恢复：value < thr − thr×15% 持续 confirm_good 秒
+     注：与原版一致 —— 任一帧回落到阈值以下即清零进入计时（故可能出现「指标条红而状态灯正常」的窗口） */
+  hysteresisUpdate(key, value, thr, now) {
+    const st = this.hyst[key];
+    if (!st) return false;
+    const { confirm_bad, confirm_good } = PRESETS[cfg.sensitivity];
+    const recoverThr = thr - Math.abs(thr) * 0.15;
+    const over = Analyzer.isOver(key, value, thr);
+    const stillOverRecover = Analyzer.isOver(key, value, recoverThr);
+
+    if (!st.bad) {
+      if (over) {
+        if (st.firstBad === null) st.firstBad = now;
+        if (now - st.firstBad >= confirm_bad * 1000) { st.bad = true; st.firstBad = null; st.firstGood = null; }
+      } else { st.firstBad = null; }
+    } else {
+      if (!stillOverRecover) {
+        if (st.firstGood === null) st.firstGood = now;
+        if (now - st.firstGood >= confirm_good * 1000) { st.bad = false; st.firstBad = null; st.firstGood = null; }
+      } else { st.firstGood = null; }
+    }
+    return st.bad;
+  }
+
+  /* 4.5 阈值：未标定走绝对值，已标定走 基线 + delta */
+  thresholds() {
+    const t = cfg.thresholds;
+    const b = this.baseline;
+    if (!b) {
+      return {
+        head_drop: t.abs_head_drop, head_lateral: t.abs_head_lateral, torso_lateral: t.abs_torso_lateral,
+        shoulder_tilt: t.abs_shoulder_tilt, face_to_shoulder: t.abs_face_too_close,
+      };
+    }
+    return {
+      head_drop: b.head_drop + t.head_drop_delta,
+      head_lateral: Math.abs(b.head_lateral) + t.head_lateral_delta,
+      torso_lateral: Math.abs(b.torso_lateral) + t.torso_lateral_delta,
+      shoulder_tilt: b.shoulder_tilt + t.shoulder_tilt_delta,
+      face_to_shoulder: b.face_to_shoulder + t.face_too_close_delta,
+    };
+  }
+
+  /* 4.6 站立判定（双路径阈值 + 滞回去抖） */
+  updateStanding(shMidY, now) {
+    const t = cfg.thresholds;
+    let enterThr, exitThr;
+    if (this.baseline) {
+      enterThr = this.baseline.shoulder_mid_y - t.stand_shoulder_rise;
+      exitThr = this.baseline.shoulder_mid_y - t.stand_shoulder_rise * 0.5;
+    } else {
+      enterThr = t.abs_stand_shoulder_y;
+      exitThr = t.abs_stand_shoulder_y * 1.15;
+    }
+    if (!this.standing) {
+      if (shMidY !== null && shMidY < enterThr) {
+        if (this.standEnterAt === null) this.standEnterAt = now;
+        if (now - this.standEnterAt >= STAND_CONFIRM_MS) { this.standing = true; this.standEnterAt = null; this.standExitAt = null; }
+      } else { this.standEnterAt = null; }
+    } else {
+      if (shMidY !== null && shMidY > exitThr) {
+        if (this.standExitAt === null) this.standExitAt = now;
+        if (now - this.standExitAt >= STAND_CONFIRM_MS) { this.standing = false; this.standExitAt = null; this.standEnterAt = null; }
+      } else { this.standExitAt = null; }
+    }
+    return this.standing;
+  }
+
+  /* 4.7 标定：累计若干帧后取均值作为基线 */
+  startCalib() { this._cal = { n: 0, sum: {}, t0: performance.now() }; }
+  calibProgress() { return this._cal ? clamp((performance.now() - this._cal.t0) / CALIB_MS, 0, 1) : 0; }
+  calibAccumulate(f) {
+    if (!this._cal) return false;
+    this._cal.n++;
+    for (const k of FILTER_KEYS) this._cal.sum[k] = (this._cal.sum[k] || 0) + (f[k] ?? 0);
+    if (performance.now() - this._cal.t0 >= CALIB_MS && this._cal.n >= 12) {
+      const n = this._cal.n, b = {};
+      for (const k of FILTER_KEYS) b[k] = this._cal.sum[k] / n;
+      this.baseline = b; this._cal = null; this.clearHyst();
+      return true;
+    }
+    return false;
+  }
+
+  /* 4.8 主流程 */
+  step(lm, now, calibrating) {
+    const res = {
+      state: 'NO_PERSON', issues: [], metrics: {}, thresholds: this.thresholds(),
+      sittingMs: 0, standing: false, calibrated: !!this.baseline, raw: null, filtered: null,
+    };
+
+    const raw = lm ? this.computeRaw(lm) : null;
+
+    /* 人体丢失：≤5s 宽限不清零，>5s 重新计时 */
+    if (!raw) {
+      if (this.lastSeen && now - this.lastSeen > PERSON_LOSS_GRACE_MS) {
+        this.sitStart = null; this.sitRemindCount = 0;
+        this.clearHyst(); this.standing = false;
+      }
+      res.state = 'NO_PERSON';
+      res.sittingMs = this.sitStart ? (this.sitFrozenMs || (now - this.sitStart)) : 0;
+      res.standing = this.standing;
+      res.metrics = null;
+      return res;
+    }
+
+    this.lastSeen = now;
+    const filtered = this.applyFilter(raw);
+    res.raw = raw; res.filtered = filtered;
+
+    /* 标定中：冻结计时与判定，仅采样 */
+    if (calibrating) {
+      this.calibAccumulate(filtered);
+      res.state = 'CALIBRATING';
+      res.metrics = filtered;
+      res.sittingMs = this.sitFrozenMs;
+      return res;
+    }
+
+    /* 站立短路：清空确认状态、清零久坐计时，不做姿态评估 */
+    if (this.updateStanding(filtered.shoulder_mid_y, now)) {
+      this.clearHyst();
+      this.sitStart = null; this.sitRemindCount = 0;
+      res.state = 'STANDING'; res.standing = true;
+      res.metrics = filtered; res.sittingMs = 0;
+      return res;
+    }
+
+    /* 久坐计时 */
+    if (this.sitStart === null) this.sitStart = now;
+    res.sittingMs = now - this.sitStart;
+    this.sitFrozenMs = res.sittingMs;
+
+    /* 逐指标判定 */
+    const thr = res.thresholds;
+    for (const d of METRIC_DEFS) {
+      const v = filtered[d.key];
+      const t = thr[d.key];
+      const bad = this.hysteresisUpdate(d.key, v, t, now);
+      if (bad) res.issues.push({ issue: d.issue, label: d.label, value: v, thr: t });
+    }
+    res.metrics = filtered;
+
+    /* 状态聚合：取优先级最高的异常作为主状态 */
+    res.issues.sort((a, b) => PRIORITY.indexOf(a.issue) - PRIORITY.indexOf(b.issue));
+    res.state = res.issues.length === 0 ? 'NORMAL' : res.issues[0].issue;
+    return res;
+  }
+}
+
+/* ============================================================
+ *  5. 应用
+ * ============================================================ */
+let cfg = loadCfg();
+loadPresets();   // 灵敏度档位参数（滤波窗口 / 确认时长 / 冷却）
+const analyzer = new Analyzer();
+
+const video = $('video');
+const canvas = $('stage-canvas');
+const ctx = canvas.getContext('2d', { alpha: false });
+
+let landmarker = null;      // 常驻单例（不销毁重建）
+let running = false;
+let calibrating = false;
+let inferMode = 'VIDEO';
+let lastResult = null;
+let lastInferAt = 0;
+let fpsFrames = 0, fpsInfers = 0, fpsAt = performance.now();
+let lastResultAt = 0, lastWarnAt = 0, lastRecoverAt = 0;
+let rafId = null, diagTimer = null;
+const captures = [];
+
+/* ---------- 5.1 模型初始化 ---------- */
+function setLoad(pct, text, sub) {
+  $('loadbar').classList.remove('hidden');
+  $('load-fill').style.width = pct + '%';
+  $('load-t').textContent = text;
+  if (sub !== undefined) $('load-s').textContent = sub;
+}
+function hideLoad() { $('loadbar').classList.add('hidden'); }
+
+async function fetchWithProgress(url, onProgress) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
+  const total = +(r.headers.get('content-length') || 0);
+  const reader = r.body.getReader();
+  const chunks = []; let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value); got += value.length;
+    if (total) onProgress(got / total);
+  }
+  return new Blob(chunks);
+}
+
+async function initModel() {
+  try {
+    setLoad(2, '加载 MediaPipe 运行时 (WASM)…', WASM_BASE);
+    const vision = await FilesetResolver.forVisionTasks(WASM_BASE);
+    setLoad(8, '下载姿态模型 pose_landmarker.task (9.4MB)…', '首次加载较慢，之后走浏览器缓存');
+
+    let modelAssetPath = MODEL_URL;
+    let objectUrl = null;
+    try {
+      const blob = await fetchWithProgress(MODEL_URL, (p) => {
+        setLoad(8 + p * 62, '下载姿态模型 pose_landmarker.task (9.4MB)…', `${(p * 100).toFixed(0)}%`);
+      });
+      objectUrl = URL.createObjectURL(blob);
+      modelAssetPath = objectUrl;
+    } catch (e) {
+      log('模型预取失败，改用直连路径：' + e.message, 'warn');
+    }
+
+    const opts = (delegate) => ({
+      baseOptions: { modelAssetPath, delegate },
+      runningMode: 'VIDEO',
+      numPoses: 1,
+      minPoseDetectionConfidence: 0.5,
+      minPosePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    setLoad(72, '创建 PoseLandmarker (GPU)…', '');
+    try {
+      landmarker = await PoseLandmarker.createFromOptions(vision, opts('GPU'));
+      log('模型就绪 · delegate = GPU · runningMode = VIDEO', 'ok');
+    } catch (e) {
+      log('GPU delegate 不可用，回落 CPU：' + e.message, 'warn');
+      setLoad(80, '创建 PoseLandmarker (CPU)…', '');
+      landmarker = await PoseLandmarker.createFromOptions(vision, opts('CPU'));
+      log('模型就绪 · delegate = CPU · runningMode = VIDEO', 'ok');
+    }
+    if (objectUrl && landmarker) { /* 保留 objectURL：模型句柄可能仍引用它 */ }
+
+    setLoad(100, '就绪', '');
+    setTimeout(hideLoad, 350);
+    $('btn-start').disabled = false;
+    lastResultAt = performance.now();
+    return true;
+  } catch (e) {
+    setLoad(100, '初始化失败', String(e.message || e));
+    log('模型初始化失败：' + (e.message || e), 'err');
+    return false;
+  }
+}
+
+/* ---------- 5.2 摄像头 ---------- */
+async function listCameras() {
+  try {
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const cams = devs.filter((d) => d.kind === 'videoinput');
+    const sel = $('sel-cam');
+    sel.innerHTML = '';
+    cams.forEach((c, i) => {
+      const o = document.createElement('option');
+      o.value = c.deviceId;
+      o.textContent = c.label || `摄像头 ${i + 1}`;
+      sel.appendChild(o);
+    });
+    if (cams[cfg.camera_index]) sel.value = cams[cfg.camera_index].deviceId;
+    log(`发现 ${cams.length} 个摄像头`);
+  } catch (e) { log('枚举摄像头失败：' + e.message, 'warn'); }
+}
+
+async function startCamera() {
+  stopCamera();
+  const deviceId = $('sel-cam').value || undefined;
+  const constraints = {
+    audio: false,
+    video: deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' },
+  };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    await video.play();
+    $('ph').classList.add('hidden');
+    running = true;
+    $('btn-start').disabled = true;
+    $('btn-stop').disabled = false;
+    log('摄像头已启动' + (deviceId ? '' : '（默认设备）'), 'ok');
+    if (!video.videoWidth) await new Promise((r) => { video.onloadedmetadata = () => r(); });
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    analyzer.reset();
+    requestAnimationFrame(loop);
+  } catch (e) {
+    log('无法访问摄像头：' + (e.message || e), 'err');
+    if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+      log('提示：浏览器要求 HTTPS 或 localhost 才能访问摄像头', 'warn');
+    }
+    $('ph').classList.remove('hidden');
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
+  const s = video.srcObject;
+  if (s) { s.getTracks().forEach((t) => t.stop()); video.srcObject = null; }
+  $('btn-start').disabled = !landmarker;
+  $('btn-stop').disabled = true;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  $('ph').classList.remove('hidden');
+}
+
+/* ---------- 5.3 主循环 ---------- */
+function loop() {
+  rafId = requestAnimationFrame(loop);
+  if (!running || video.readyState < 2) return;
+
+  drawStage();
+  fpsFrames++;
+  maybeInfer();
+}
+
+function maybeInfer() {
+  if (!landmarker) return;
+  const now = performance.now();
+  if (now - lastInferAt < 10) return;          // 上限 ~100Hz，避免空转
+  lastInferAt = now;
+  let ts = now;
+  if (ts <= (maybeInfer._ts || 0)) ts = maybeInfer._ts + 1;
+  maybeInfer._ts = ts;
+
+  try {
+    let res = null;
+    if (inferMode === 'VIDEO') res = landmarker.detectForVideo(video, ts);
+    else res = landmarker.detect(video);
+    if (res) { lastResult = res; lastResultAt = performance.now(); fpsInfers++; }
+  } catch (e) {
+    if (now - lastWarnAt > 5000) { log('推理异常：' + (e.message || e), 'warn'); lastWarnAt = now; }
+    return;
+  }
+  updateAnalysis(performance.now());
+}
+
+/* ---------- 5.4 分层诊断 + 停滞看门狗（沿用桌面版插桩经验） ---------- */
+let lastFFps = 0, lastIFps = 0;
+
+function updateDiag() {
+  const now = performance.now();
+  if (now - fpsAt < 3000) return;
+  const dt = (now - fpsAt) / 1000;
+  lastFFps = fpsFrames / dt;
+  lastIFps = fpsInfers / dt;
+  fpsFrames = 0; fpsInfers = 0; fpsAt = now;
+  const nose = lastNose ? `鼻(${lastNose.x.toFixed(2)},${lastNose.y.toFixed(2)})` : '鼻(--,-- )';
+  const lmv = lastResult && lastResult.landmarks && lastResult.landmarks[0];
+  const visTxt = lmv
+    ? ` 可见 鼻${(vis(lmv[NOSE]) * 100 | 0)} 肩${(Math.min(vis(lmv[L_SH]), vis(lmv[R_SH])) * 100 | 0)} 髋${(Math.min(vis(lmv[L_HIP]), vis(lmv[R_HIP])) * 100 | 0)}`
+    : '';
+  log(`DIAG 采集${lastFFps.toFixed(1)}fps 推理${lastIFps.toFixed(1)}fps 循环存活 ${nose}${visTxt}`, 'diag');
+
+  /* 采集正常但推理不出结果 → 判定停滞，切 IMAGE 模式逐帧全图检测 */
+  if (running && lastFFps > 1 && lastIFps < 0.5 && now - lastResultAt > 2000) {
+    log('WARN 姿态推理停滞超过 2 秒（画面正常但关键点未更新）', 'warn');
+    if (now - lastRecoverAt > 15000) { lastRecoverAt = now; recoverInfer(); }
+  }
+}
+
+function recoverInfer() {
+  if (inferMode === 'IMAGE') return;
+  try {
+    landmarker.setOptions({ runningMode: 'IMAGE' });
+    inferMode = 'IMAGE';
+    log('已切换为逐帧全图检测（IMAGE 模式）以规避跟踪锁死', 'warn');
+  } catch (e) {
+    log('切换 IMAGE 模式失败：' + (e.message || e), 'err');
+  }
+}
+
+/* ---------- 5.5 画面绘制 ---------- */
+let lastNose = null;
+
+function drawStage() {
+  const W = canvas.width, H = canvas.height;
+  const mirror = cfg.mirror;
+  ctx.save();
+  if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+  ctx.drawImage(video, 0, 0, W, H);
+  ctx.restore();
+
+  const lm = lastResult && lastResult.landmarks && lastResult.landmarks[0];
+  if (!lm) { lastNose = null; return; }
+
+  const px = (p) => (mirror ? 1 - p.x : p.x) * W;
+  const py = (p) => p.y * H;
+
+  /* 骨架连线 */
+  ctx.lineWidth = Math.max(2, W / 480);
+  ctx.strokeStyle = 'rgba(0,240,255,0.85)';
+  ctx.shadowColor = 'rgba(0,240,255,0.7)';
+  ctx.shadowBlur = 8;
+  for (const [a, b] of CONNECTIONS) {
+    const pa = lm[a], pb = lm[b];
+    if (!pa || !pb) continue;
+    if (vis(pa) < 0.3 || vis(pb) < 0.3) continue;
+    ctx.beginPath(); ctx.moveTo(px(pa), py(pa)); ctx.lineTo(px(pb), py(pb)); ctx.stroke();
+  }
+  /* 关键点 */
+  ctx.shadowBlur = 0;
+  for (let i = 0; i < lm.length; i++) {
+    const p = lm[i];
+    if (vis(p) < 0.3) continue;
+    const core = CORE_POINTS.includes(i);
+    ctx.fillStyle = core ? '#ff2bd1' : 'rgba(155,176,201,0.75)';
+    ctx.beginPath(); ctx.arc(px(p), py(p), core ? 4 : 2.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#00ff9d';
+  const nose = lm[NOSE];
+  ctx.beginPath(); ctx.arc(px(nose), py(nose), 5, 0, Math.PI * 2); ctx.fill();
+  lastNose = { x: mirror ? 1 - nose.x : nose.x, y: nose.y, v: vis(nose) };
+
+  /* 关键点短名标注（仅 v>0.5，坐标统一收进右下角表格） */
+  ctx.font = `600 ${Math.max(11, W / 110)}px ui-monospace, Consolas, monospace`;
+  ctx.textBaseline = 'middle';
+  for (const [idx, name] of KEY_LANDMARKS) {
+    const p = lm[idx];
+    if (!p || vis(p) < 0.5) continue;
+    const x = px(p), y = py(p);
+    const left = idx === L_EAR || idx === L_SH || idx === L_HIP;
+    ctx.textAlign = left ? 'right' : 'left';
+    ctx.fillStyle = 'rgba(4,6,13,0.75)';
+    const tw = ctx.measureText(name).width + 8;
+    const bx = left ? x - 10 - tw : x + 10;
+    ctx.fillRect(bx, y - 9, tw, 18);
+    ctx.fillStyle = '#00ff9d';
+    ctx.fillText(name, left ? x - 14 : x + 14, y);
+  }
+
+  /* 右下角坐标表（阈值调参用） */
+  const rows = [];
+  for (const [idx, name] of KEY_LANDMARKS) {
+    const p = lm[idx];
+    if (!p || vis(p) < 0.5) continue;
+    rows.push(`${name.padEnd(6, ' ')}: (${(mirror ? 1 - p.x : p.x).toFixed(2)},${p.y.toFixed(2)}) v=${vis(p).toFixed(2)}`);
+  }
+  if (rows.length) {
+    const f = Math.max(11, W / 105);
+    ctx.font = `${f}px ui-monospace, Consolas, monospace`;
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    const lh = f * 1.5, pad = f * 0.7;
+    const wmax = Math.max(...rows.map((r) => ctx.measureText(r).width));
+    const bw = wmax + pad * 2, bh = rows.length * lh + pad * 2;
+    const bx = W - bw - 16, by = H - bh - 16;
+    ctx.fillStyle = 'rgba(4,6,13,0.72)';
+    ctx.fillRect(bx, by, bw, bh);
+    ctx.fillStyle = '#00ff9d';
+    rows.forEach((r, i) => ctx.fillText(r, bx + pad, by + pad + lh * i + lh / 2));
+  }
+}
+
+/* ---------- 5.6 分析接入 ---------- */
+let lastUiUpdate = 0;
+function updateAnalysis(now) {
+  const lm = lastResult && lastResult.landmarks && lastResult.landmarks[0];
+  const r = analyzer.step(lm, now, calibrating);
+  if (calibrating && r.state === 'CALIBRATING') {
+    const p = analyzer.calibProgress();
+    setLoad(100 * p, '标定采样中…', '请保持端正坐姿，勿移动');
+    if (analyzer.baseline) {
+      calibrating = false; hideLoad();
+      log(`标定完成 · 基线 head_drop=${analyzer.baseline.head_drop.toFixed(3)} shoulder_mid_y=${analyzer.baseline.shoulder_mid_y.toFixed(3)}`, 'ok');
+      speak('标定完成');
+      $('kv-cal').textContent = '已标定';
+      saveCfg();
+    }
+  }
+  renderPanel(r, now);
+}
+
+/* ---------- 5.7 面板渲染 ---------- */
+const ringEl = $('ring'), lampEl = $('lamp'), lampTextEl = $('lamp-text'), chipsEl = $('chips');
+
+function renderPanel(r, now) {
+  if (now - lastUiUpdate < 80) return;     // 面板 ~12Hz，避免 DOM 抖动
+  lastUiUpdate = now;
+
+  /* --- 状态灯 --- */
+  let lampCls = 'lamp idle', lampTxt = 'IDLE', bigCls = '', bigT = '等待启动', bigS = 'camera idle';
+  if (r.state === 'NO_PERSON') {
+    lampCls = 'lamp warn'; lampTxt = 'NO PERSON'; bigCls = 'warn'; bigT = '未检测到人体'; bigS = '请坐进画面，保持上半身可见';
+  } else if (r.state === 'CALIBRATING') {
+    lampCls = 'lamp warn'; lampTxt = 'CALIBRATING'; bigCls = 'warn'; bigT = '标定中'; bigS = '保持端正坐姿 2.5 秒';
+  } else if (r.state === 'STANDING') {
+    lampCls = 'lamp ok'; lampTxt = 'STANDING'; bigCls = ''; bigT = '站立'; bigS = '久坐计时已清零';
+  } else if (r.issues.length === 0) {
+    lampCls = 'lamp ok'; lampTxt = 'NORMAL'; bigCls = ''; bigT = '坐姿正常'; bigS = r.calibrated ? '相对基线判定中' : '绝对阈值判定中（建议标定）';
+  } else {
+    lampCls = 'lamp bad'; lampTxt = `● 检测到 ${r.issues.length} 项异常`; bigCls = 'bad';
+    bigT = r.issues[0].label + '异常'; bigS = r.issues.map((i) => i.label).join(' · ');
+  }
+  if (lampEl.className !== lampCls) lampEl.className = lampCls;
+  if (lampTextEl.textContent !== lampTxt) lampTextEl.textContent = lampTxt;
+  if (ringEl.parentElement.className !== 'status-big ' + bigCls) ringEl.parentElement.className = 'status-big ' + bigCls;
+  ringEl.textContent = r.issues.length ? String(r.issues.length) : (r.state === 'STANDING' ? '站' : r.state === 'NO_PERSON' ? '?' : 'OK');
+  $('status-t').textContent = bigT; $('status-s').textContent = bigS;
+
+  chipsEl.innerHTML = r.issues.length
+    ? r.issues.map((i) => `<span class="chip">${i.label} ${i.value.toFixed(3)} &gt; ${i.thr.toFixed(3)}</span>`).join('')
+    : (r.state === 'STANDING' ? '<span class="chip green">站立 · 计时清零</span>' : '');
+
+  /* --- 数值卡 --- */
+  $('kv-sit').textContent = fmtDur(r.sittingMs);
+  $('kv-issues').textContent = String(r.issues.length);
+  $('kv-fps').textContent = `${lastFFps.toFixed(0)} / ${lastIFps.toFixed(0)}`;
+  $('kv-cal').textContent = analyzer.baseline ? '已标定' : '未标定';
+
+  renderMetrics(r);
+  renderStanding(r);
+
+  /* --- 久坐提醒（倍数递进） --- */
+  maybeSitRemind(r, now);
+  maybeSpeakState(r, now);
+}
+
+function renderMetrics(r) {
+  const box = $('metrics');
+  if (!box.dataset.ready) {
+    box.innerHTML = METRIC_DEFS.map((d) => `
+      <div class="metric" data-k="${d.key}">
+        <div class="row">
+          <div class="name">${d.label}<small>${d.sub} · ${d.notes}</small></div>
+          <div class="val na">--</div>
+        </div>
+        <div class="bar"><div class="fill"></div></div>
+        <div class="thr">阈值 --</div>
+      </div>`).join('') + `
+      <div class="metric" id="metric-standing">
+        <div class="row">
+          <div class="name">站立状态<small>shoulder_mid_y · 越小越靠上</small></div>
+          <div class="val na" id="stand-val">--</div>
+        </div>
+        <div class="bar" id="stand-bar"><div class="fill" id="stand-fill"></div></div>
+        <div class="thr" id="stand-thr">阈值 --</div>
+      </div>`;
+    box.dataset.ready = '1';
+  }
+  for (const d of METRIC_DEFS) {
+    const el = box.querySelector(`.metric[data-k="${d.key}"]`);
+    const v = r.metrics ? r.metrics[d.key] : null;
+    const t = r.thresholds[d.key];
+    const valEl = el.querySelector('.val'), fillEl = el.querySelector('.fill'), barEl = el.querySelector('.bar'), thrEl = el.querySelector('.thr');
+
+    if (v === null || v === undefined || Number.isNaN(v)) {
+      valEl.className = 'val na'; valEl.textContent = '--';
+      fillEl.style.width = '0%'; fillEl.className = 'fill';
+      thrEl.textContent = `阈值 ${t.toFixed(3)}`;
+    } else {
+      const over = Analyzer.isOver(d.key, v, t);
+      valEl.className = 'val' + (over ? ' over' : '');
+      valEl.textContent = (v >= 0 ? '+' : '') + v.toFixed(3);
+      thrEl.textContent = `阈值 ${(d.useAbs ? '±' : '')}${t.toFixed(3)}`;
+
+      const [lo, hi] = d.range;
+      const span = hi - lo;
+      const pos = (x) => clamp((x - lo) / span, 0, 1) * 100;
+      const vp = pos(clamp(v, lo, hi));
+      if (d.signed) {
+        const zp = pos(0);
+        fillEl.style.left = Math.min(zp, vp) + '%';
+        fillEl.style.width = Math.abs(vp - zp) + '%';
+      } else {
+        fillEl.style.left = '0%';
+        fillEl.style.width = vp + '%';
+      }
+      fillEl.className = 'fill' + (over ? ' over' : '');
+
+      /* 阈值标记与零点（量程固定，位置只与阈值有关，重建即可） */
+      barEl.querySelectorAll('.mark').forEach((m) => m.remove());
+      const ts = d.useAbs ? [-Math.abs(t), Math.abs(t)] : [t];
+      ts.forEach((tv) => {
+        const s = document.createElement('span');
+        s.className = 'mark';
+        s.style.left = `calc(${pos(clamp(tv, lo, hi))}% - 1px)`;
+        barEl.appendChild(s);
+      });
+      if (d.signed && !barEl.querySelector('.zero')) {
+        const z = document.createElement('span'); z.className = 'zero'; z.style.left = `calc(${pos(0)}% - 0.5px)`; barEl.appendChild(z);
+      }
+    }
+  }
+}
+
+/* 站立状态指示：未站立=绿色，显示双肩中心 y + 进入/退出阈值标记 */
+function renderStanding(r) {
+  const valEl = $('stand-val'), fillEl = $('stand-fill'), barEl = $('stand-bar'), thrEl = $('stand-thr');
+  const y = r.metrics ? r.metrics.shoulder_mid_y : null;
+  const t = cfg.thresholds;
+  const b = analyzer.baseline;
+  const enterThr = b ? b.shoulder_mid_y - t.stand_shoulder_rise : t.abs_stand_shoulder_y;
+  const exitThr = b ? b.shoulder_mid_y - t.stand_shoulder_rise * 0.5 : t.abs_stand_shoulder_y * 1.15;
+
+  barEl.querySelectorAll('.mark').forEach((m) => m.remove());
+  [enterThr, exitThr].forEach((tv) => {
+    const s = document.createElement('span');
+    s.className = 'mark';
+    s.style.left = `calc(${clamp(tv, 0, 1) * 100}% - 1px)`;
+    barEl.appendChild(s);
+  });
+
+  if (y === null || y === undefined || Number.isNaN(y)) {
+    valEl.className = 'val na'; valEl.textContent = '--';
+    fillEl.style.left = '0%'; fillEl.style.width = '0%'; fillEl.className = 'fill';
+    thrEl.textContent = `enter ${enterThr.toFixed(3)} · exit ${exitThr.toFixed(3)}${b ? '（标定）' : '（兜底）'}`;
+    return;
+  }
+  const standing = !!r.standing;
+  valEl.className = 'val' + (standing ? ' over' : '');
+  valEl.textContent = `${standing ? '● 站立' : '○ 坐姿'}  y=${y.toFixed(3)}`;
+  /* y=0 在画面顶部 → 填充从顶部起，高度等于 y */
+  fillEl.style.left = '0%';
+  fillEl.style.width = clamp(y, 0, 1) * 100 + '%';
+  fillEl.className = 'fill' + (standing ? ' over' : '');
+  thrEl.textContent = `enter ${enterThr.toFixed(3)} · exit ${exitThr.toFixed(3)}${b ? '（标定）' : '（兜底）'}`;
+}
+
+/* ---------- 5.8 播报与截图 ---------- */
+function maybeSpeakState(r, now) {
+  const cd = PRESETS[cfg.sensitivity].cooldown * 1000;
+  const isBad = r.issues.length > 0;
+  /* 异常自动留档：任一“新异常项”出现即截图 —— 覆盖「恢复后再异常」与「坏状态中冒出新异常项」；
+     恢复（issues 清空）后重置集合；最小间隔 5s 防止确认期抖动连拍 */
+  if (cfg.auto_capture_on_bad && isBad) {
+    const hasNew = r.issues.some((i) => !analyzer.lastCapIssues || !analyzer.lastCapIssues.has(i.issue));
+    if (hasNew && now - analyzer.lastCapAt > 5000) {
+      analyzer.lastCapAt = now;
+      analyzer.lastCapIssues = new Set(r.issues.map((i) => i.issue));
+      captureShot('abnormal');
+    }
+  } else if (!isBad) {
+    analyzer.lastCapIssues = null;
+  }
+  if (isBad && !analyzer.lastStateWasBad) {
+    if (now - analyzer.lastAlertAt > cd) {
+      analyzer.lastAlertAt = now; analyzer.lastStateWasBad = true;
+      speak(`检测到${r.issues.map((i) => i.label).join('、')}，请调整坐姿`);
+      log(`ALERT ${r.issues.map((i) => `${i.label}(${i.value.toFixed(3)}>${i.thr.toFixed(3)})`).join(' ')}`, 'err');
+    } else { analyzer.lastStateWasBad = true; }
+  } else if (!isBad && analyzer.lastStateWasBad) {
+    analyzer.lastStateWasBad = false;
+    if (now - analyzer.lastAlertAt > cd) { analyzer.lastAlertAt = now; speak('已恢复，坐姿正常'); log('RECOVER 坐姿恢复正常', 'ok'); }
+  } else if (isBad && now - analyzer.lastAlertAt > cd) {
+    analyzer.lastAlertAt = now;
+    speak(`仍在${r.issues.map((i) => i.label).join('、')}，请调整坐姿`);
+    log('ALERT 持续异常，重复提醒', 'warn');
+  }
+}
+
+function maybeSitRemind(r, now) {
+  const mins = cfg.sit_remind_minutes;
+  if (!mins || mins <= 0) return;
+  if (r.state === 'STANDING' || r.state === 'NO_PERSON') return;
+  const target = mins * 60 * 1000 * (analyzer.sitRemindCount + 1);
+  if (r.sittingMs >= target) {
+    analyzer.sitRemindCount++;
+    const min = Math.round(r.sittingMs / 60000);
+    log(`SIT 已久坐 ${min} 分钟，提醒起身活动（第 ${analyzer.sitRemindCount} 次）`, 'warn');
+    speak(`已久坐 ${min} 分钟，请起身活动`);
+    captureShot('sit-remind');
+  }
+}
+
+function captureShot(reason) {
+  try {
+    const url = canvas.toDataURL('image/jpeg', 0.7);
+    captures.unshift({ url, reason, at: new Date() });
+    while (captures.length > 12) captures.pop();
+    renderShots();
+    log(`已截图留档（${reason}）`, 'ok');
+  } catch (e) { log('截图失败：' + e.message, 'warn'); }
+}
+function renderShots() {
+  const box = $('shots');
+  $('shots-empty').style.display = captures.length ? 'none' : 'block';
+  box.innerHTML = captures.map((c, i) => `
+    <div class="shot">
+      <img src="${c.url}" alt="capture" data-i="${i}" title="单击原比例查看" />
+      <div class="m"><span>${c.reason}</span><span>${fmtShotTime(c.at)}</span></div>
+    </div>`).join('');
+}
+
+/* ---------- 5.8b 截图原比例查看 ---------- */
+function fmtShotTime(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function openLightbox(c) {
+  if (!c) return;
+  $('lb-img').src = c.url;
+  $('lb-info').textContent = `${c.reason} · ${fmtShotTime(c.at)} · ${canvas.width}×${canvas.height}`;
+  const a = $('lb-save');
+  a.href = c.url;
+  a.download = `pose-${c.reason}-${c.at.getTime()}.jpg`;
+  $('lightbox').classList.remove('hidden');
+}
+function closeLightbox() {
+  $('lightbox').classList.add('hidden');
+  $('lb-img').removeAttribute('src');
+}
+$('shots').addEventListener('click', (e) => {
+  const img = e.target.closest('img[data-i]');
+  if (img) openLightbox(captures[+img.dataset.i]);
+});
+$('lb-close').addEventListener('click', closeLightbox);
+$('lightbox').addEventListener('click', (e) => {
+  if (e.target.id === 'lightbox' || e.target.classList.contains('lb-stage')) closeLightbox();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeLightbox(); });
+
+/* ---------- 5.9 设置绑定 ---------- */
+/* 设置面板字段 ↔ 配置键映射（注意 d-face_to_close ↔ face_too_close_delta 键名不同） */
+const DELTA_FIELDS = [
+  ['d-head_drop', 'head_drop_delta'],
+  ['d-head_lateral', 'head_lateral_delta'],
+  ['d-torso_lateral', 'torso_lateral_delta'],
+  ['d-shoulder_tilt', 'shoulder_tilt_delta'],
+  ['d-face_to_close', 'face_too_close_delta'],
+];
+const ABS_FIELDS = [
+  ['a-head_drop', 'abs_head_drop'],
+  ['a-head_lateral', 'abs_head_lateral'],
+  ['a-torso_lateral', 'abs_torso_lateral'],
+  ['a-shoulder_tilt', 'abs_shoulder_tilt'],
+  ['a-face_to_shoulder', 'abs_face_too_close'],
+  ['a-stand_y', 'abs_stand_shoulder_y'],
+];
+
+function bindSettings() {
+  const t = cfg.thresholds;
+  $('set-sens').value = cfg.sensitivity;
+  $('set-remind').value = cfg.sit_remind_minutes;
+  $('set-rise').value = t.stand_shoulder_rise;
+  $('set-mirror').value = cfg.mirror ? '1' : '0';
+  $('set-autocap').value = cfg.auto_capture_on_bad ? '1' : '0';
+  for (const [id, key] of DELTA_FIELDS) $(id).value = t[key];
+  for (const [id, key] of ABS_FIELDS) $(id).value = t[key];
+  for (const [id, lvl, key] of PRESET_FIELDS) $(id).value = PRESETS[lvl][key];
+}
+function applySettings() {
+  const oldSens = cfg.sensitivity;
+  cfg.sensitivity = $('set-sens').value;
+  cfg.sit_remind_minutes = +$('set-remind').value || 0;
+  cfg.mirror = $('set-mirror').value === '1';
+  cfg.auto_capture_on_bad = $('set-autocap').value === '1';
+  const t = cfg.thresholds;
+  t.stand_shoulder_rise = +$('set-rise').value || 0.08;
+  for (const [id, key] of DELTA_FIELDS) t[key] = +$(id).value;
+  for (const [id, key] of ABS_FIELDS) t[key] = +$(id).value;
+  for (const [id, lvl, key] of PRESET_FIELDS) PRESETS[lvl][key] = +$(id).value || PRESETS[lvl][key];
+  savePresets();
+  if (oldSens !== cfg.sensitivity) {
+    for (const k of FILTER_KEYS) analyzer.filters[k] = [];
+    log(`灵敏度切换为 ${cfg.sensitivity}（滤波窗口 ${PRESETS[cfg.sensitivity].filter_window} 帧 / 确认 ${PRESETS[cfg.sensitivity].confirm_bad}s / 恢复 ${PRESETS[cfg.sensitivity].confirm_good}s / 冷却 ${PRESETS[cfg.sensitivity].cooldown}s）`, 'ok');
+  }
+  saveCfg();
+  log('参数已保存到本机 localStorage', 'ok');
+}
+
+/* ---------- 5.10 事件绑定与启动 ---------- */
+/* 启动入口唯一：控制栏左侧按钮 */
+$('btn-start').onclick = () => { initRunning(); };
+$('btn-stop').onclick = () => { stopCamera(); log('已停止监测（推理器保持常驻，避免重建死锁）', 'warn'); };
+$('btn-refresh').onclick = () => listCameras();
+$('btn-settings').onclick = () => $('settings-panel').classList.toggle('hidden');
+$('sel-cam').onchange = () => {
+  const idx = [...$('sel-cam').options].findIndex((o) => o.value === $('sel-cam').value);
+  cfg.camera_index = Math.max(0, idx); saveCfg();
+  if (running) startCamera();
+};
+$('btn-shot').onclick = () => { if (running) captureShot('manual'); else log('尚未启动，无法截图', 'warn'); };
+$('btn-cal').onclick = () => {
+  if (!running) { log('请先启动监测再标定', 'warn'); return; }
+  calibrating = true;
+  analyzer._cal = null; analyzer.startCalib();
+  analyzer.sitFrozenMs = analyzer.sitStart ? performance.now() - analyzer.sitStart : 0;
+  for (const k of FILTER_KEYS) analyzer.filters[k] = [];
+  log('开始标定：请保持端正坐姿约 2.5 秒', 'ok');
+};
+$('btn-reset-cal').onclick = () => {
+  analyzer.baseline = null; analyzer.clearHyst(); saveCfg();
+  $('kv-cal').textContent = '未标定';
+  log('已重置标定，改回绝对阈值判定', 'warn');
+};
+$('btn-reset-cfg').onclick = () => {
+  cfg = structuredClone(DEFAULT_CFG);
+  const d = {
+    high:   { filter_window: 3, confirm_bad: 2.0,  confirm_good: 4.0,  cooldown: 20.0 },
+    medium: { filter_window: 6, confirm_bad: 5.0,  confirm_good: 10.0, cooldown: 45.0 },
+    low:    { filter_window: 9, confirm_bad: 8.0,  confirm_good: 16.0, cooldown: 90.0 },
+  };
+  for (const lvl of ['high', 'medium', 'low']) Object.assign(PRESETS[lvl], d[lvl]);
+  saveCfg(); savePresets(); bindSettings();
+  for (const k of FILTER_KEYS) analyzer.filters[k] = [];
+  log('参数已恢复默认', 'ok');
+};
+['set-sens', 'set-remind', 'set-rise', 'set-mirror', 'set-autocap',
+ 'd-head_drop', 'd-head_lateral', 'd-torso_lateral', 'd-shoulder_tilt', 'd-face_to_close',
+ 'a-head_drop', 'a-head_lateral', 'a-torso_lateral', 'a-shoulder_tilt', 'a-face_to_shoulder', 'a-stand_y',
+ 'p-high-filter', 'p-high-bad', 'p-high-good', 'p-high-cool',
+ 'p-med-filter', 'p-med-bad', 'p-med-good', 'p-med-cool',
+ 'p-low-filter', 'p-low-bad', 'p-low-good', 'p-low-cool']
+  .forEach((id) => { const el = $(id); if (el) el.onchange = applySettings; });
+
+window.addEventListener('beforeunload', () => { try { landmarker && landmarker.close(); } catch {} });
+
+async function initRunning() {
+  $('btn-start').disabled = true;
+  if (!landmarker) {
+    const ok = await initModel();
+    if (!ok) { $('btn-start').disabled = false; return; }
+  }
+  await listCameras();
+  await startCamera();
+}
+
+log('POSTURE.GUARD ready · 模型与运行时均为自托管静态资源', 'ok');
+log('点击控制栏「启动检测」后将在本机加载 9.4MB 模型（首次较慢，之后走缓存）');
+bindSettings();
+renderMetrics({ metrics: null, thresholds: analyzer.thresholds() });   // 启动前先渲染指标占位，避免空卡片
+renderShots();
+diagTimer = setInterval(updateDiag, 1000);
+$('btn-start').disabled = false;
+
+/* 调试句柄：可在浏览器控制台直接喂入合成关键点做自检 / 调参 */
+window.PG = { analyzer, cfg, PRESETS, Analyzer, METRIC_DEFS, speak, captureShot };
+
+/* 页面隐藏时暂停推理，回来后恢复（省电） */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; } }
+  else if (running && rafId === null) { requestAnimationFrame(loop); }
+});
+</script>
+</body>
+</html>

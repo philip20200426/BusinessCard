@@ -885,7 +885,7 @@ function setLoad(pct, text, sub) {
 function hideLoad() { $('loadbar').classList.add('hidden'); }
 
 async function fetchWithProgress(url, onProgress) {
-  const r = await fetch(url);
+  const r = await fetch(url, { cache: 'force-cache' });
   if (!r.ok) throw new Error(`${url} -> HTTP ${r.status}`);
   const total = +(r.headers.get('content-length') || 0);
   const reader = r.body.getReader();

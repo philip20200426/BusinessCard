@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <title>CSV 数据分析工具（网页版）</title>
 <style>
   :root {
@@ -115,6 +116,8 @@
     white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
   }
   table.data th { background: #f4f7fc; color: #47536b; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+  /* 原因列文字通常较长，放开单行/260px 限制，允许换行完整显示 */
+  table.data td.reason { max-width: none; white-space: normal; word-break: break-word; min-width: 240px; }
   table.data tbody tr:hover { background: #f8faff; }
   .table-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: 8px; }
   .pass { color: var(--green); font-weight: 600; }
@@ -339,9 +342,9 @@
 <!-- vendor 库体积大且不常改，保留强缓存；下面 4 个自研脚本带版本号，强制绕过浏览器旧缓存 -->
 <script src="vendor/papaparse.min.js"></script>
 <script src="vendor/echarts.min.js"></script>
-<script src="db.js?v=20261016"></script>
-<script src="engine.js?v=20261016"></script>
-<script src="app.js?v=20261016"></script>
-<script src="entry.js?v=20261016"></script>
+<script src="db.js?v=r2"></script>
+<script src="engine.js?v=r2"></script>
+<script src="app.js?v=r2"></script>
+<script src="entry.js?v=r2"></script>
 </body>
 </html>

@@ -130,6 +130,7 @@ function renderSnTable(result) {
     wrap.innerHTML = '<span class="muted">没有查询到记录</span>';
     return;
   }
+  const reasonNorms = new Set(REASON_ALIASES.map(normalizeCol));
   let html = '<table class="data"><thead><tr>';
   for (const c of result.columns) html += `<th>${escapeHtml(c)}</th>`;
   html += '</tr></thead><tbody>';
@@ -139,6 +140,7 @@ function renderSnTable(result) {
       const v = row[c];
       let cls = '';
       if (c === '判定') cls = v === 'PASS' ? 'pass' : (v === 'FAIL' ? 'fail' : '');
+      if (reasonNorms.has(normalizeCol(c))) cls = (cls + ' reason').trim();
       html += `<td class="${cls}">${escapeHtml(v === null || v === undefined ? '' : String(v))}</td>`;
     }
     html += '</tr>';

@@ -1,15 +1,19 @@
 import http.server
 import socketserver
+from urllib.parse import urlparse
 
 PORT = 8899
 
 
 class SmartCacheHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
-        path = self.path.lower()
-        # 源码类文件（含 .js，Tab 逻辑改动的重灾区）一律禁用缓存；
+        # 必须先剥掉查询串（如 ?v=r2）再判断扩展名：
+        # 否则 "/app.js?v=r2" 不以 .js 结尾，会被误判成大体积二进制而强缓存一年
+        path = urlparse(self.path).path.lower()
+        # 源码类文件（含 .js，逻辑改动频繁）一律禁用缓存；
         # 大体积二进制资源（wasm/onnx/bin 等）保持强缓存，避免重复下载。
-        if path.endswith(('.html', '.css', '.js', '.mjs', '.json', '.map')):
+        # 根路径 "/" 实际返回 index.html，也必须禁用缓存，否则首页会被缓存一年
+        if path in ('', '/') or path.endswith(('.html', '.css', '.js', '.mjs', '.json', '.map', '.svg')):
             self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")

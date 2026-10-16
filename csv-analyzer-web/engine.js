@@ -18,6 +18,13 @@ const TIME_ALIASES = [
   'timestamp', 'createtime', 'create_time', '记录时间',
   '测试时间(年-月-日 时:分:秒)', '测试日期时间',
 ];
+// 结果说明类列：SN 查询表中该列之后通常是无效列，仅显示到它为止
+const REASON_ALIASES = [
+  '原因', '失败原因', '不良原因', '不良描述', '不良现象', '故障原因',
+  '错误原因', '错误信息', '原因描述', 'ng原因',
+  '备注', 'remark', 'note', 'comment',
+  'reason', 'fail_reason', 'failreason', 'error', 'message',
+];
 
 const PASS_WORDS = new Set([
   'pass', 'p', 'ok', '1', 'true', 'y', 'yes', '通过', '合格', '良品',
@@ -551,7 +558,11 @@ class Engine {
     const cols = await this.listColumns();
     const roleNorms = new Set();
     for (const a of [...SN_ALIASES, ...PASS_ALIASES, ...TIME_ALIASES]) roleNorms.add(normalizeCol(a));
-    const showCols = cols.filter(c => !roleNorms.has(normalizeCol(c.name)));
+    let showCols = cols.filter(c => !roleNorms.has(normalizeCol(c.name)));
+    // 原因列之后多为无意义的杂项列（常显示为乱码，并挤占原因列宽度），按位置截断
+    const reasonNorms = new Set(REASON_ALIASES.map(normalizeCol));
+    const reasonIdx = showCols.findIndex(c => reasonNorms.has(normalizeCol(c.name)));
+    if (reasonIdx >= 0) showCols = showCols.slice(0, reasonIdx + 1);
 
     const outRows = rows.map(r => {
       const obj = { SN: r.sn || '', 判定: r.pass_status || '', 测试时间: r.test_time || '' };

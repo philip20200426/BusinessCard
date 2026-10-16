@@ -744,36 +744,62 @@
       <!-- Project 2 -->
       <article class="proj reveal" data-hover>
         <div class="preview">
-          <span class="badge">◆ OSS</span>
-          <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
-            <rect width="400" height="180" fill="#0b1226"/>
-            <g stroke="#b026ff" stroke-width="1" fill="none" opacity="0.6">
-              <path d="M0,120 Q100,40 200,120 T400,120"/>
-              <path d="M0,140 Q100,80 200,140 T400,140"/>
-              <path d="M0,160 Q100,120 200,160 T400,160"/>
-            </g>
-            <g fill="#00f0ff">
-              <rect x="40" y="60" width="4" height="60"/><rect x="80" y="40" width="4" height="80"/>
-              <rect x="120" y="70" width="4" height="50"/><rect x="160" y="30" width="4" height="90"/>
-              <rect x="200" y="50" width="4" height="70"/><rect x="240" y="20" width="4" height="100"/>
-              <rect x="280" y="60" width="4" height="60"/><rect x="320" y="35" width="4" height="85"/>
-              <rect x="360" y="55" width="4" height="65"/>
-            </g>
-            <text x="20" y="170" font-family="monospace" font-size="9" fill="#5d6e87">audio reactive · 60fps</text>
-          </svg>
+          <a href="./csv-analyzer-web/csv.html?v=20261016" style="display:block;width:100%;height:100%" data-hover>
+            <span class="badge mag">● LIVE</span>
+            <svg viewBox="0 0 400 180" xmlns="http://www.w3.org/2000/svg">
+              <rect width="400" height="180" fill="#0b1226"/>
+              <g stroke="#1d2b45" stroke-width="1" fill="none">
+                <rect x="24" y="28" width="150" height="124"/>
+                <line x1="24" y1="52" x2="174" y2="52"/>
+                <line x1="24" y1="76" x2="174" y2="76"/>
+                <line x1="24" y1="100" x2="174" y2="100"/>
+                <line x1="24" y1="124" x2="174" y2="124"/>
+                <line x1="96" y1="28" x2="96" y2="152"/>
+              </g>
+              <g font-family="monospace" font-size="9" fill="#5d6e87">
+                <text x="34" y="44">SN</text><text x="106" y="44">RESULT</text>
+              </g>
+              <g font-family="monospace" font-size="9" fill="#3d5270">
+                <text x="34" y="68">LINE1-00A3</text>
+                <text x="34" y="92">LINE1-00B7</text>
+                <text x="34" y="116">LINE2-01F2</text>
+                <text x="34" y="140">LINE3-0C58</text>
+              </g>
+              <g font-family="monospace" font-size="9" fill="#00ff9d">
+                <text x="106" y="68">PASS</text>
+                <text x="106" y="92">PASS</text>
+                <text x="106" y="140">PASS</text>
+              </g>
+              <text x="106" y="116" font-family="monospace" font-size="9" fill="#ff2bd1">FAIL</text>
+              <g fill="#00f0ff" opacity="0.9">
+                <rect x="230" y="118" width="10" height="30"/>
+                <rect x="244" y="96" width="10" height="52"/>
+                <rect x="258" y="70" width="10" height="78"/>
+                <rect x="272" y="48" width="10" height="100"/>
+                <rect x="286" y="60" width="10" height="88"/>
+                <rect x="300" y="84" width="10" height="64"/>
+                <rect x="314" y="104" width="10" height="44"/>
+                <rect x="328" y="124" width="10" height="24"/>
+                <rect x="342" y="134" width="10" height="14"/>
+              </g>
+              <path d="M226,140 C250,120 262,58 287,52 C312,58 324,116 356,142" stroke="#b026ff" stroke-width="1.5" fill="none" opacity="0.85"/>
+              <text x="20" y="170" font-family="monospace" font-size="9" fill="#5d6e87">SN query · NG distribution · 100% local</text>
+            </svg>
+          </a>
         </div>
         <div class="body">
           <div class="idx">// project_02</div>
-          <h3>Spectrum — Audio Reactive Engine</h3>
-          <p>A small WebAudio + GLSL playground that turns any audio stream into shader-reactive visuals. Drop-in module, zero deps.</p>
+          <h3>CSV — Browser Data Analyzer</h3>
+          <p>Client-side manufacturing CSV quality-data tool. PapaParse parsing, IndexedDB storage, ECharts distribution charts — SN fuzzy lookup with time-range filters. Zero server, data never leaves the browser.</p>
           <div class="stack">
-            <span class="tag">WebAudio</span>
-            <span class="tag">GLSL</span>
-            <span class="tag">Three.js</span>
+            <span class="tag hot">PapaParse</span>
+            <span class="tag">IndexedDB</span>
+            <span class="tag">ECharts</span>
+            <span class="tag">Vanilla JS</span>
           </div>
           <div class="links">
-            <a href="#" data-hover>demo ▸</a>
-            <a href="#" data-hover>source ▸</a>
+            <a href="./csv-analyzer-web/csv.html?v=20261016" data-hover>demo ▸</a>
+            <a href="https://github.com/philip20200426/BusinessCard" data-hover>source ▸</a>
           </div>
         </div>
       </article>

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CSV 数据分析工具（网页版）</title>
+<style>
+  :root {
+    --primary: #3a6df0;
+    --primary-dark: #2f5cdb;
+    --bg: #edf0f6;
+    --card: #ffffff;
+    --border: #e2e7f0;
+    --text: #1f2733;
+    --muted: #64748b;
+    --green: #1fa65a;
+    --red: #e5484d;
+    --navy: #101a2e;
+    --shadow-sm: 0 1px 2px rgba(16,26,46,.05);
+    --shadow-md: 0 4px 16px rgba(16,26,46,.08);
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ===== 顶栏 ===== */
+  header {
+    background: var(--navy); height: 56px; padding: 0 24px;
+    display: flex; align-items: center; gap: 12px;
+    position: sticky; top: 0; z-index: 50; box-shadow: var(--shadow-md);
+  }
+  header .brand {
+    width: 26px; height: 26px; border-radius: 7px; flex-shrink: 0;
+    background: linear-gradient(135deg, #3a6df0, #00c2ff);
+    box-shadow: 0 0 12px rgba(58,109,240,.55);
+  }
+  header h1 { font-size: 16px; margin: 0; color: #f1f5fb; font-weight: 600; letter-spacing: .5px; white-space: nowrap; }
+  header .ver {
+    font-size: 11px; color: #8fa3c8; border: 1px solid rgba(143,163,200,.35);
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
+  main { padding: 20px 24px 48px; max-width: 1400px; margin: 0 auto; }
+
+  /* ===== 按钮 / 表单 ===== */
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    height: 32px; padding: 0 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    transition: all .15s; box-shadow: var(--shadow-sm);
+  }
+  .btn:hover { border-color: var(--primary); color: var(--primary); }
+  .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .btn.primary:hover { background: var(--primary-dark); border-color: var(--primary-dark); color: #fff; }
+  .btn.danger:hover { border-color: var(--red); color: var(--red); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  input[type="text"], input[type="date"], input[type="number"], select {
+    border: 1px solid #ccd5e3; border-radius: 8px; height: 32px; padding: 0 10px;
+    font-size: 13px; background: #fff; color: var(--text); outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(58,109,240,.15); }
+  input[readonly] { background: #f6f8fc; color: var(--muted); }
+  .row > label { color: #47536b; font-size: 13px; }
+
+  /* ===== 卡片 ===== */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+  }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+
+  /* ===== 进度条 ===== */
+  #progressWrap { display: none; align-items: center; gap: 10px; flex: 1; min-width: 220px; }
+  #progressBar { flex: 1; height: 8px; background: #e6eaf3; border-radius: 999px; overflow: hidden; }
+  #progressFill { height: 100%; background: linear-gradient(90deg, var(--primary), #00c2ff); width: 0; transition: width .2s; border-radius: 999px; }
+
+  /* ===== 顶层标签：分段胶囊 ===== */
+  .tabs.top-tabs {
+    display: inline-flex; gap: 4px; margin-bottom: 18px;
+    background: #dde3ef; padding: 4px; border-radius: 10px;
+  }
+  .tabs.top-tabs button {
+    border: none; background: transparent; padding: 8px 26px; font-size: 14px;
+    cursor: pointer; color: #55617a; border-radius: 8px; font-weight: 500; transition: all .15s;
+  }
+  .tabs.top-tabs button:hover { color: var(--text); }
+  .tabs.top-tabs button.active {
+    background: #fff; color: var(--primary); font-weight: 600;
+    box-shadow: 0 2px 6px rgba(16,26,46,.12);
+  }
+
+  /* ===== 子标签：下划线 ===== */
+  .tabs.sub-tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+  .tabs.sub-tabs button {
+    border: none; background: transparent; padding: 9px 18px; font-size: 13px;
+    cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: all .15s;
+  }
+  .tabs.sub-tabs button:hover { color: var(--text); }
+  .tabs.sub-tabs button.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+  .tabpage { display: none; }
+  .tabpage.active { display: block; }
+  .subtabpage { display: none; }
+  .subtabpage.active { display: block; }
+
+  /* ===== 表格 ===== */
+  table.data { border-collapse: collapse; width: 100%; font-size: 12.5px; background: #fff; }
+  table.data th, table.data td {
+    border-bottom: 1px solid var(--border); padding: 6px 10px; text-align: left;
+    white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
+  }
+  table.data th { background: #f4f7fc; color: #47536b; font-weight: 600; position: sticky; top: 0; z-index: 1; }
+  table.data tbody tr:hover { background: #f8faff; }
+  .table-scroll { overflow: auto; max-height: 60vh; border: 1px solid var(--border); border-radius: 8px; }
+  .pass { color: var(--green); font-weight: 600; }
+  .fail { color: var(--red); font-weight: 600; }
+
+  /* ===== 列名 chips ===== */
+  #colList { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  #colList li {
+    background: #eef3ff; border: 1px solid #c9d9fb; color: #2c56a0;
+    padding: 4px 10px; border-radius: 999px; font-size: 12px; display: flex; align-items: center; gap: 6px;
+  }
+  #colList li a { cursor: pointer; color: var(--red); text-decoration: none; font-weight: 700; }
+
+  /* ===== 图表 ===== */
+  .chart-card {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px; margin-bottom: 16px; box-shadow: var(--shadow-sm);
+  }
+  .chart-box { width: 100%; height: 380px; }
+  .charts-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 1100px) { .charts-grid.multi { grid-template-columns: 1fr 1fr; } }
+
+  /* ===== 弹窗 ===== */
+  .modal-mask {
+    display: none; position: fixed; inset: 0; background: rgba(16,26,46,.45);
+    z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(2px);
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 14px; padding: 22px 26px; width: 480px;
+    max-width: 92vw; max-height: 85vh; overflow: auto; box-shadow: var(--shadow-md);
+  }
+  .modal h3 { margin-top: 0; }
+  .modal .form-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+  .modal .form-row label { width: 80px; flex-shrink: 0; }
+  .modal select { flex: 1; }
+
+  /* ===== 底部状态栏 ===== */
+  #statusBar {
+    position: fixed; bottom: 0; left: 0; right: 0; background: var(--navy); color: #aebcd8;
+    font-size: 12px; padding: 6px 18px; z-index: 60; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  body { padding-bottom: 34px; }
+  .inline-group { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* ===== 工位录入 ===== */
+  .qe-btn {
+    font-size: 17px; font-weight: 700; color: #fff; border: none; border-radius: 10px;
+    padding: 16px 52px; cursor: pointer; transition: all .15s; letter-spacing: 1px;
+  }
+  #qeBtnPass { background: var(--green); box-shadow: 0 4px 14px rgba(31,166,90,.35); }
+  #qeBtnPass:hover { background: #23b866; transform: translateY(-1px); }
+  #qeBtnPass:active { transform: translateY(0); }
+  #qeBtnNg { background: var(--red); box-shadow: 0 4px 14px rgba(229,72,77,.3); }
+  #qeBtnNg:hover { background: #f25a5e; transform: translateY(-1px); }
+  #qeBtnNg:active { transform: translateY(0); }
+  #qeStatusBox {
+    background: #f7f9fd; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; margin-top: 12px; font-size: 13px; line-height: 1.7;
+  }
+  .qe-stats { display: flex; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+  .qe-stat {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 8px 20px; min-width: 110px; box-shadow: var(--shadow-sm);
+  }
+  .qe-stat .num { font-size: 22px; font-weight: 700; line-height: 1.25; }
+  .qe-stat .lbl { font-size: 11px; color: var(--muted); }
+  .qe-stat.total .num { color: var(--primary); }
+  .qe-stat.pass .num { color: var(--green); }
+  .qe-stat.ng .num { color: var(--red); }
+  .qe-last { color: var(--muted); }
+  .qe-last b { color: var(--text); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"></div>
+  <h1>CSV 数据分析工具</h1>
+  <span class="ver">网页版 · 纯本地运行</span>
+</header>
+
+<main>
+  <div class="tabs top-tabs">
+    <button class="active" data-tab="entry">工位录入</button>
+    <button data-tab="analysis">数据分析</button>
+  </div>
+
+  <!-- 工位录入页 -->
+  <div class="tabpage active" id="tab-entry">
+    <div class="card">
+      <div class="row" style="margin-bottom:4px">
+        <span class="muted">扫/输入 SN 号，选择位置，点 PASS 或 NG 保存一条记录。文件按 日期_位置.csv 命名（如 2026-09-23_left.csv），追加写入。SN 输入框回车 = PASS。</span>
+      </div>
+      <div class="row">
+        <label for="qeSn">SN 号：</label>
+        <input type="text" id="qeSn" maxlength="36" placeholder="扫描或输入 SN 号（最多 36 字符）" style="width:340px">
+        <label for="qePos">位置：</label>
+        <input type="text" id="qePos" list="qePosList" placeholder="选择预设，或输入自定义（如 front）" style="width:220px">
+        <datalist id="qePosList"></datalist>
+      </div>
+      <div class="row" style="margin-top:14px;gap:16px">
+        <button class="qe-btn" id="qeBtnPass">✓ PASS</button>
+        <button class="qe-btn" id="qeBtnNg">✗ NG</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row">
+        <label>保存目录：</label>
+        <input type="text" id="qeDir" readonly placeholder="选择 CSV 文件保存目录" style="flex:1;min-width:200px">
+        <button class="btn" id="qeBtnBrowse">浏览…</button>
+        <button class="btn primary" id="qeBtnExport" style="display:none">导出暂存 CSV</button>
+        <button class="btn danger" id="qeBtnClearStaged" style="display:none">清空暂存</button>
+      </div>
+      <div id="qeStatusBox">状态：就绪</div>
+    </div>
+  </div>
+
+  <!-- 数据分析页（大 Tab：目录/扫描/时间筛选设置 + SN 查询与动态分布子页） -->
+  <div class="tabpage" id="tab-analysis">
+    <div class="card">
+      <div class="row">
+        <button class="btn" id="btnPickDir">选择 CSV 目录…</button>
+        <input type="file" id="dirInput" webkitdirectory style="display:none">
+        <span class="muted" id="dirLabel">未选择目录</span>
+        <button class="btn primary" id="btnFullScan">预解析（全量）</button>
+        <button class="btn" id="btnIncrScan">增量解析</button>
+        <button class="btn danger" id="btnCancel" style="display:none">取消</button>
+        <div id="progressWrap">
+          <div id="progressBar"><div id="progressFill"></div></div>
+          <span class="muted" id="progressText"></span>
+        </div>
+        <button class="btn" id="btnMapping">列名设置</button>
+        <button class="btn" id="btnClearDb">清空数据库</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="inline-group">
+          <input type="checkbox" id="timeEnable">
+          <label for="timeEnable">启用时间范围筛选</label>
+        </div>
+        <div class="inline-group">
+          <input type="date" id="timeStart"> <span class="muted">至</span> <input type="date" id="timeEnd">
+          <button class="btn" id="btnResetTime">重置</button>
+        </div>
+        <span class="muted" id="dbStats"></span>
+      </div>
+    </div>
+
+    <div class="tabs sub-tabs">
+      <button class="active" data-subtab="sn">SN 号查询</button>
+      <button data-subtab="dist">动态分布</button>
+    </div>
+
+    <!-- SN 查询子页 -->
+    <div class="subtabpage active" id="subtab-sn">
+    <div class="card">
+      <div class="row">
+        <label>SN 号：</label>
+        <input type="text" id="snInput" list="snList" placeholder="输入 SN（支持模糊包含匹配）" style="width:280px">
+        <datalist id="snList"></datalist>
+        <button class="btn primary" id="btnSnQuery">查询</button>
+        <button class="btn" id="btnExport">导出 CSV</button>
+        <span class="muted" id="snSummary"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="table-scroll" id="snTableWrap"><span class="muted">查询结果将显示在这里</span></div>
+    </div>
+  </div>
+
+    <!-- 动态分布子页 -->
+    <div class="subtabpage" id="subtab-dist">
+    <div class="card">
+      <div class="row">
+        <input type="text" id="colInput" placeholder="输入列名，如：角度" style="width:200px">
+        <button class="btn" id="btnAddColInput">添加</button>
+        <select id="colCombo" style="min-width:180px"><option value="">— 已知列 —</option></select>
+        <button class="btn" id="btnAddColCombo">添加选中列</button>
+        <button class="btn danger" id="btnClearCols">清空列名</button>
+      </div>
+      <ul id="colList"></ul>
+      <div class="row">
+        <div class="inline-group">
+          <label>文件名包含：</label>
+          <input type="text" id="fileInclude" placeholder="关键词，逗号分隔" style="width:180px">
+        </div>
+        <div class="inline-group">
+          <label>文件名排除：</label>
+          <input type="text" id="fileExclude" placeholder="关键词，逗号分隔" style="width:180px">
+        </div>
+        <div class="inline-group">
+          <label>σ 倍数：</label>
+          <input type="number" id="sigmaInput" value="3" min="1" max="6" step="0.5" style="width:64px">
+        </div>
+        <button class="btn primary" id="btnDist">生成分布图</button>
+      </div>
+      <div class="muted" style="margin-top:6px">分布仅统计判定为 PASS 的记录；标题中同时显示所选范围内的 NG 数量。</div>
+    </div>
+    <div class="charts-grid" id="chartsGrid"></div>
+    </div>
+  </div>
+</main>
+
+<!-- 列名设置对话框 -->
+<div class="modal-mask" id="mappingModal">
+  <div class="modal">
+    <h3>列名设置</h3>
+    <div class="muted">若 CSV 的 SN / 判定 / 时间列名特殊，请在此手动指定（未设置时自动识别）。</div>
+    <div class="form-row"><label>SN 列</label><select id="mapSn"></select></div>
+    <div class="form-row"><label>判定列</label><select id="mapPass"></select></div>
+    <div class="form-row"><label>时间列</label><select id="mapTime"></select></div>
+    <div class="muted" id="mappingHint"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px">
+      <button class="btn" id="btnMapClose">取消</button>
+      <button class="btn primary" id="btnMapSave">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="statusBar">就绪</div>
+
+<!-- vendor 库体积大且不常改，保留强缓存；下面 4 个自研脚本带版本号，强制绕过浏览器旧缓存 -->
+<script src="vendor/papaparse.min.js"></script>
+<script src="vendor/echarts.min.js"></script>
+<script src="db.js?v=20261016"></script>
+<script src="engine.js?v=20261016"></script>
+<script src="app.js?v=20261016"></script>
+<script src="entry.js?v=20261016"></script>
+</body>
+</html>

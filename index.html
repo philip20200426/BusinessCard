@@ -313,8 +313,8 @@
     color: var(--purple);
     margin-bottom: 12px;
   }
-  .about-domains p { font-size: 16px; line-height: 2; color: var(--fg-1); }
-  .about-domains strong {
+  .about-domains p, .about-industries p { font-size: 16px; line-height: 2; color: var(--fg-1); }
+  .about-domains strong, .about-industries strong {
     font-family: var(--mono);
     font-size: 14px;
     font-weight: 500;
@@ -341,6 +341,7 @@
   }
   .about-value p { font-size: 17px; line-height: 1.8; color: var(--fg-0); }
   .about-value strong { color: var(--cyan); font-weight: 500; }
+  .about-value .value-tail { text-align: right; margin-top: 2px; }
   .stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -526,7 +527,7 @@
     background: linear-gradient(90deg, var(--cyan), var(--magenta));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  #contact .box p { text-align: left; }
+  #contact .box p { text-align: center; }
   #contact .box p.nowrap {
     white-space: nowrap;
     overflow: hidden;
@@ -549,6 +550,27 @@
   }
   .contact-links a:hover { color: var(--cyan); border-color: var(--cyan); box-shadow: 0 0 16px rgba(0,240,255,0.3); }
   .contact-links a .k { color: var(--purple); margin-right: 8px; }
+  .qr-wrap {
+    margin-top: 36px;
+    display: flex; flex-direction: column; align-items: center; gap: 10px;
+  }
+  .qr-img {
+    width: 168px; height: 168px;
+    object-fit: cover;
+    border: 1px solid var(--line);
+    background: #fff;
+    padding: 6px;
+    transition: all 0.2s;
+  }
+  .qr-img:hover { border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,240,255,0.25); }
+  #contact .qr-label {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-2);
+    letter-spacing: 0.08em;
+    margin: 0;
+    margin-bottom: 0;
+  }
 
   /* ============ Footer ============ */
   footer {
@@ -575,6 +597,7 @@
     .wrap { padding: 0 20px; }
     section { padding: 80px 0 40px; }
     #contact .box { padding: 32px 20px; }
+    .qr-img { width: 136px; height: 136px; }
     .skills-grid { grid-template-columns: 1fr; }
   }
 </style>
@@ -605,7 +628,7 @@
 
   <!-- ========== HERO ========== -->
   <section id="hero">
-    <div class="hero-meta">// SYSTEM ONLINE · <span id="clock">--:--:--</span> · NODE #0421</div>
+    <div class="hero-meta">// SYSTEM ONLINE · <span id="clock">--:--:--</span> · NODE #180702</div>
     <h1 class="title">
       <span class="kw kw-white">Android</span>
       <span class="kw-sep">·</span>
@@ -660,15 +683,22 @@
       <p>
         Daily work spans <strong>Android APP / Framework / Native (C++) / BSP / Linux Kernel</strong>,
         <strong>Computer Vision</strong> and <strong>Model Deployment</strong>, <strong>Full-Stack Apps</strong>,
-        <strong>iOS / Android Screen Casting</strong>, Camera / Optics PQ, Embedded Development<span class="ell">...</span>
+        <strong>iOS / Android Screen Casting</strong>, <strong>Camera / Optics PQ</strong>, <strong>Embedded Development</strong><span class="ell">...</span>
+      </p>
+    </div>
+
+    <div class="about-block about-industries reveal">
+      <span class="about-label">// products</span>
+      <p>
+        长期扎根 <strong>行业定制智能终端</strong>、<strong>VR/AR 眼镜</strong>、<strong>手机系统</strong>、<strong>智能投影</strong> 与 <strong>智能体</strong> 领域，从 0 到 1 做产品定义，从 1 到 N 做量产交付。
       </p>
     </div>
 
     <div class="about-block about-value reveal">
       <p>
-        从底层硬件到中间层 / 算法 / 应用，再到端到端工程落地，<strong>把整条链路打通</strong>
-        —— 是我们能交付的最大价值。
+        <strong> 从硬件到底层驱动/ 系统定制 / 算法 / 应用（网页，APP，微信小程序等），再到端到端工程落地 </strong>
       </p>
+      <p class="value-tail">—— 提供整套技术解决方案。</p>
     </div>
 
     <div class="stats reveal">
@@ -956,6 +986,10 @@
         <a href="https://github.com/" target="_blank" rel="noopener" data-hover><span class="k">[git]</span>github.com/buffer</a>
         <a href="#" data-hover><span class="k">[x]</span>@buffer</a>
         <a href="#" data-hover><span class="k">[rss]</span>journal</a>
+      </div>
+      <div class="qr-wrap">
+        <img src="wechat-qr.jpg" alt="WeChat QR Code - buffer" class="qr-img" data-hover>
+        <p class="qr-label">[wechat] 扫码添加好友</p>
       </div>
     </div>
   </section>
